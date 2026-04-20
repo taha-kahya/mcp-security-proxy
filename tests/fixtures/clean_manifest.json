@@ -1,0 +1,47 @@
+{
+  "server": "test-clean",
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Returns current weather for a city.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "The city name."
+          }
+        },
+        "required": ["city"]
+      }
+    },
+    {
+      "name": "list_files",
+      "description": "Lists files in the specified directory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path to list."
+          }
+        },
+        "required": ["path"]
+      }
+    },
+    {
+      "name": "search_docs",
+      "description": "Searches documentation for a query term.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search term."
+          }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
