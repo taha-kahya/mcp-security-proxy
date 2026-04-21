@@ -1,4 +1,4 @@
-# MCP Security Tester
+# MCP Security Proxy
 
 A transparent security proxy that sits between your AI agent and MCP servers — watching every tool call, scanning every response, and alerting when something goes wrong.
 
