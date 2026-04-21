@@ -80,7 +80,8 @@ class MCPSecurityProxy:
                     for f in output_findings + anomaly_findings:
                         _alert(f)
 
-                    return result.content
+                    # Return full result to preserve structuredContent (MCP protocol 2025-11-25)
+                    return result
 
                 async with stdio_server() as (read_stream, write_stream):
                     await app.run(
