@@ -18,8 +18,6 @@ None of these are detectable by reading the manifest once at install time. They 
 
 ## How it works
 
-The proxy sits transparently in the MCP communication path:
-
 ```
 Agent (Cursor / Claude Desktop / Copilot)
               ↓
@@ -35,17 +33,35 @@ The agent thinks it's talking directly to the real server. Every tool call flows
 3. **Logs every tool call** with full context — tool name, arguments, response, timing
 4. **Flags anomalous sequences** — agent calling tools it shouldn't given the conversation context
 
+Alerts go to stderr in real time. The proxy never modifies or blocks responses — observe-only by default.
+
 ---
 
-## Quick start
+## Prerequisites
 
-### 1. Install
+- Python 3.11+
+- Node.js 18+ (needed to run MCP servers via `npx`)
+- Claude Desktop or Cursor
+
+---
+
+## Setup
+
+### 1. Clone and install
 
 ```bash
+git clone <repo-url>
+cd mcp-security-tester
 pip install -e ".[dev]"
 ```
 
-### 2. Find the full path to `mcp-tester`
+### 2. Verify
+
+```bash
+mcp-tester --help
+```
+
+### 3. Find the full path to `mcp-tester`
 
 ```bash
 which mcp-tester
@@ -54,9 +70,9 @@ which mcp-tester
 
 Claude Desktop does not inherit your shell PATH, so you must use the absolute path in the config.
 
-### 3. Configure Claude Desktop
+### 4. Configure Claude Desktop
 
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (create it if it doesn't exist):
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -74,13 +90,52 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (create i
 }
 ```
 
-Replace `/opt/anaconda3/bin/mcp-tester` with your actual path from step 2, and set the directory and log paths to wherever you want.
+Replace the command path with your output from step 3.
 
-### 4. Restart Claude Desktop
+### 5. Restart Claude Desktop
 
-Quit and reopen Claude Desktop. The proxy starts automatically when Claude connects to the filesystem server.
+The proxy starts automatically when Claude connects to the server. You should see on stderr:
 
-Alerts stream to stderr in real time. Tool calls are logged to the path you set with `--log`.
+```
+[mcp-security-proxy] Starting proxy for 'filesystem' → npx ...
+[mcp-security-proxy] Logging calls to /path/to/mcp-security.jsonl
+```
+
+When a threat is detected, an alert line appears:
+
+```json
+{"alert": true, "level": "HIGH", "signal": "secrecy_directive", "tool": "read_file", "detail": "...", "timestamp": "..."}
+```
+
+---
+
+## Reading the call log
+
+Every tool call is written as a JSON line to the `--log` file:
+
+```bash
+cat /path/to/mcp-security.jsonl | python3 -m json.tool
+```
+
+If `flagged` is `true` in an entry, the `findings` array contains the full detail of what was detected.
+
+---
+
+## Offline static scan
+
+Scan a saved manifest without a live proxy:
+
+```bash
+mcp-tester scan --manifest corpus/manifests/mcp-server-filesystem.json
+```
+
+Save a full JSON report:
+
+```bash
+mcp-tester scan --manifest corpus/manifests/mcp-server-filesystem.json --output report.json
+```
+
+Exit code is `2` for CRITICAL findings, `1` for HIGH, `0` otherwise — useful in CI.
 
 ---
 
@@ -98,12 +153,21 @@ See [docs/attacks.md](docs/attacks.md) for payloads and detection logic.
 
 ## Known limitations
 
-These are gaps in current coverage — understanding them prevents over-relying on the tool:
-
-- **Tool arguments are not scanned.** An injected instruction that passes a sensitive path as an argument (e.g. `read_file("/etc/passwd")`) is logged but not flagged. Only tool outputs and manifest descriptions are scanned.
+- **Tool arguments are not scanned.** An injected instruction that passes a sensitive path as an argument (e.g. `read_file("/etc/passwd")`) is logged but not flagged.
 - **Credential detection is partial.** GitHub, OpenAI, AWS, and private keys are covered. Azure, Google Cloud, and Slack tokens are not yet matched.
 - **Tool shadowing is connect-time only.** Shadowing introduced via a runtime tool output is caught as generic prompt injection, not classified as shadowing.
-- **Sequence patterns are limited.** Only 4 rules are defined. Coverage will improve as patterns are tuned against real captured sessions.
+- **Sequence patterns are limited.** Only 4 rules are defined. Coverage improves as patterns are tuned against real captured sessions.
+
+---
+
+## Development
+
+```bash
+pytest                 # run all tests
+pytest tests/unit/     # unit tests only
+```
+
+New detectors go in `static_analyzer/detectors.py`, wired into `static_analyzer/analyzer.py`. New anomaly sequence rules go in `anomaly_detector/patterns.py` as `SequencePattern` dataclasses.
 
 ---
 
@@ -122,3 +186,10 @@ mcp_security_tester/
 ```
 
 See [docs/architecture.md](docs/architecture.md) for detail.
+
+---
+
+## Team
+
+Ahmet Taha Kahya, Yunus Emre Ulusoy, Emirhan Oguz, Semih Dogan, Burak Ala.
+Supervisor: Cemal Yilmaz — Sabanci University 2026.
