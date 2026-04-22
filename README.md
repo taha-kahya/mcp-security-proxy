@@ -51,7 +51,7 @@ Alerts go to stderr in real time. The proxy never modifies or blocks responses â
 
 ```bash
 git clone <repo-url>
-cd mcp-security-tester
+cd mcp-security-proxy
 pip install -e ".[dev]"
 ```
 
