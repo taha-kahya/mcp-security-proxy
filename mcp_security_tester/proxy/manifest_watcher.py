@@ -74,7 +74,6 @@ class ManifestWatcher:
                     ],
                 ))
 
-        self._snapshot = current
         return findings
 
     def _hash_tool(self, tool: dict) -> str:
