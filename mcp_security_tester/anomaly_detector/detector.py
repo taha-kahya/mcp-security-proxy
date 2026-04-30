@@ -10,21 +10,31 @@ from mcp_security_tester.call_logger.logger import ToolCall
 from mcp_security_tester.reports.models import Finding
 
 
+
 class AnomalyDetector:
     def __init__(self, approved_tools: list[str] | None = None):
         self._approved_tools = set(approved_tools or [])
+        self._reported: set[str] = set()  # ← ADD THIS
+
 
     def set_approved_tools(self, tool_names: list[str]) -> None:
         self._approved_tools = set(tool_names)
 
     def check(self, recent_calls: list[ToolCall]) -> list[Finding]:
-        findings: list[Finding] = []
-        findings.extend(_check_sequences(recent_calls))
-        findings.extend(_check_rapid_repeat(recent_calls))
+        all_findings: list[Finding] = []
+        all_findings.extend(_check_sequences(recent_calls))
+        all_findings.extend(_check_rapid_repeat(recent_calls))
         if self._approved_tools:
-            findings.extend(_check_unapproved(recent_calls, self._approved_tools))
-        return findings
+            all_findings.extend(_check_unapproved(recent_calls, self._approved_tools))
 
+        new_findings = []
+        for f in all_findings:
+            key = f"{f.signal}:{f.tool_name}:{f.evidence}"
+            if key not in self._reported:
+                self._reported.add(key)
+                new_findings.append(f)
+
+        return new_findings
 
 def _check_sequences(calls: list[ToolCall]) -> list[Finding]:
     findings: list[Finding] = []
