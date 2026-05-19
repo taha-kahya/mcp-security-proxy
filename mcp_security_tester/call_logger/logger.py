@@ -26,12 +26,13 @@ class CallLogger:
     def __init__(self, log_path: str | None = None, max_recent: int = 50):
         self._calls: deque[ToolCall] = deque(maxlen=max_recent)
         self._log_path = Path(log_path) if log_path else None
+        self._log_file = open(self._log_path, "a") if self._log_path else None
 
     def log(self, call: ToolCall) -> None:
         self._calls.append(call)
-        if self._log_path:
-            with open(self._log_path, "a") as f:
-                f.write(json.dumps(_serialize(call)) + "\n")
+        if self._log_file:
+            self._log_file.write(json.dumps(_serialize(call)) + "\n")
+            self._log_file.flush()
 
     def recent(self, n: int = 10) -> list[ToolCall]:
         calls = list(self._calls)
@@ -40,6 +41,9 @@ class CallLogger:
     def all_calls(self) -> list[ToolCall]:
         return list(self._calls)
 
+    def close(self) -> None:               
+        if self._log_file:
+            self._log_file.close()
 
 def _serialize(call: ToolCall) -> dict:
     d = dataclasses.asdict(call)
