@@ -14,6 +14,9 @@ from mcp_security_tester.static_analyzer.signals import (
 
 
 def detect_imperative_verb(tool_name: str, field_path: str, text: str) -> Finding | None:
+    # Tool titles and names are never poisoning signals
+    if field_path in ("title", "name"):
+        return None
     lower = text.lower()
     for verb in IMPERATIVE_VERBS:
         if verb in lower:
@@ -34,6 +37,30 @@ def detect_imperative_verb(tool_name: str, field_path: str, text: str) -> Findin
 
 
 def detect_secrecy_directive(tool_name: str, field_path: str, text: str) -> Finding | None:
+    lower = text.lower()
+    # Data-movement verbs that make "silently" dangerous
+    DATA_MOVEMENT_VERBS = ["send", "upload", "exfiltrate", "transmit", "forward", "copy", "write", "fetch"]
+    for directive in SECRECY_DIRECTIVES:
+        if directive not in lower:
+            continue
+        # "silently" alone is not enough — needs a data-movement verb nearby
+        if directive == "silently":
+            if not any(v in lower for v in DATA_MOVEMENT_VERBS):
+                continue
+        return Finding(
+            attack_type="tool_poisoning",
+            severity="HIGH",
+            tool_name=tool_name,
+            field=field_path,
+            evidence=_excerpt(text, directive),
+            signal="secrecy_directive",
+            reproduction_steps=[
+                f"Load the manifest for tool '{tool_name}'.",
+                f"Inspect field '{field_path}'.",
+                f"Found secrecy directive '{directive}' — strong indicator of tool poisoning.",
+            ],
+        )
+    return None
     lower = text.lower()
     for directive in SECRECY_DIRECTIVES:
         if directive in lower:
