@@ -70,7 +70,7 @@ class MCPSecurityProxy:
                     call = ToolCall(
                         tool_name=name,
                         arguments=arguments or {},
-                        response_text=response_text[:500],
+                        response_text=response_text,
                         duration_ms=duration_ms,
                         findings=output_findings,
                     )
