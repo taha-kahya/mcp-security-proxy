@@ -1,7 +1,7 @@
 """
-Poisoned web server for indirect prompt injection PoC.
+Poisoned web server — serves routes for all attack types.
 
-Routes are generated automatically from payloads.py:
+Routes are generated automatically from each attack's payloads.py:
   /{payload_name}           visible technique
   /{payload_name}/hidden    CSS display:none
   /{payload_name}/comment   HTML comment
@@ -9,19 +9,31 @@ Routes are generated automatically from payloads.py:
 
 Payloads with a custom "body" key only get a single route (/{name}).
 
-Add new payloads in payloads.py — no changes needed here.
+Add new payloads in attacks/<type>/payloads.py — no changes needed here.
 
 Usage:
     python tests/poc/server.py          # localhost:8888
     python tests/poc/server.py 9000     # custom port
 """
 
+import importlib.util
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-from payloads import PAYLOADS
+POC_DIR = Path(__file__).parent
+
+
+def _load_payloads(path: Path, module_name: str) -> dict:
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.PAYLOADS
+
+
+PI_PAYLOADS = _load_payloads(POC_DIR / "attacks" / "prompt_injection" / "payloads.py", "pi_payloads")
+CE_PAYLOADS = _load_payloads(POC_DIR / "attacks" / "credential_exfil" / "payloads.py", "ce_payloads")
+PAYLOADS = {**PI_PAYLOADS, **CE_PAYLOADS}
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8888
 
