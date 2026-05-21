@@ -33,12 +33,18 @@ Every `list_tools` and `call_tool` is intercepted, scanned, logged, then forward
 ## Module layout
 
 ```
-proxy/                  → server.py (core bridge), manifest_watcher.py, output_scanner.py
-call_logger/            → ToolCall dataclass + JSONL writer
-anomaly_detector/       → patterns.py (declarative sequence rules), detector.py
-static_analyzer/        → detectors.py + analyzer.py — reused at runtime for manifest + output scanning
-reports/                → Finding + Report dataclasses, json_reporter.py
-manifest_collector/     → collector.py — stdio/SSE client, save/load corpus
+proxy/              → server.py — MCP bridge, thin orchestrator
+detection/
+  attacks/          → base.py + build_registry(); one subfolder per attack type
+    tool_poisoning/ → signals.py, detectors.py, analyzer.py, attack.py
+    rug_pull/       → watcher.py (SHA-256 manifest diff), attack.py
+    credential_leak/→ patterns.py (regexes), attack.py
+  anomaly/          → patterns.py (declarative SequencePattern rules), detector.py
+core/               → shared primitives, no internal deps
+  models.py         → Finding + Report dataclasses
+  reporter.py       → JSON serializer
+  logger.py         → ToolCall dataclass + JSONL writer
+  collector.py      → stdio/SSE client, save/load corpus
 ```
 
 ## Key design decisions

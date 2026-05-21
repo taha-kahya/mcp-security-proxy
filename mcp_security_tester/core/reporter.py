@@ -3,7 +3,7 @@
 import dataclasses
 import json
 
-from mcp_security_tester.reports.models import Report
+from mcp_security_tester.core.models import Report
 
 
 def to_json(report: Report, indent: int = 2) -> str:

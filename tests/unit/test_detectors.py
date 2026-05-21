@@ -2,7 +2,7 @@
 
 import pytest
 
-from mcp_security_tester.static_analyzer.detectors import (
+from mcp_security_tester.detection.attacks.tool_poisoning.detectors import (
     detect_cross_tool_reference,
     detect_hidden_text,
     detect_imperative_verb,

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from mcp_security_tester.manifest_collector.collector import load
-from mcp_security_tester.static_analyzer.analyzer import analyze_manifest
+from mcp_security_tester.core.collector import load
+from mcp_security_tester.detection.attacks.tool_poisoning.analyzer import analyze_manifest
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

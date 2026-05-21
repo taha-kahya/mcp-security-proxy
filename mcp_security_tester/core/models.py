@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 Severity = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
-AttackType = Literal["tool_poisoning", "rug_pull", "output_injection", "shadowing"]
+AttackType = Literal["tool_poisoning", "rug_pull", "output_injection", "shadowing", "credential_leak"]
 
 _SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 

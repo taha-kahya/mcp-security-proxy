@@ -1,8 +1,3 @@
-"""
-Detection pattern lists for static poisoning signal analysis.
-All matches are case-insensitive substring checks.
-"""
-
 IMPERATIVE_VERBS: list[str] = [
     "read", "send", "delete", "upload", "download", "execute",
     "exfiltrate", "transmit", "copy", "move", "write", "fetch",
@@ -31,16 +26,15 @@ SENSITIVE_PATHS: list[str] = [
 
 # Zero-width and invisible Unicode characters
 HIDDEN_TEXT_CHARS: list[str] = [
-    "\u200b",  # zero width space
-    "\u200c",  # zero width non-joiner
-    "\u200d",  # zero width joiner
-    "\ufeff",  # byte order mark / zero width no-break space
-    "\u2060",  # word joiner
-    "\u202e",  # right-to-left override
-    "\u202d",  # left-to-right override
-    "\u200e",  # left-to-right mark
-    "\u200f",  # right-to-left mark
+    "​",  # zero width space
+    "‌",  # zero width non-joiner
+    "‍",  # zero width joiner
+    "﻿",  # byte order mark / zero width no-break space
+    "⁠",  # word joiner
+    "‮",  # right-to-left override
+    "‭",  # left-to-right override
+    "‎",  # left-to-right mark
+    "‏",  # right-to-left mark
 ]
 
-# Minimum consecutive whitespace newlines to flag as suspicious padding
 HIDDEN_WHITESPACE_THRESHOLD = 8

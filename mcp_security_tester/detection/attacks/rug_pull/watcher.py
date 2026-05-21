@@ -1,21 +1,18 @@
 import hashlib
 import json
 
-from mcp_security_tester.reports.models import Finding
-from mcp_security_tester.static_analyzer.analyzer import analyze_manifest
+from mcp_security_tester.detection.attacks.tool_poisoning.analyzer import analyze_manifest
+from mcp_security_tester.detection.attacks.tool_poisoning.signals import SENSITIVE_PATHS
+from mcp_security_tester.core.models import Finding
 
 
 class ManifestWatcher:
     def __init__(self, server_name: str):
         self.server_name = server_name
-        self._snapshot: dict[str, str] = {}  # tool_name → hash
+        self._snapshot: dict[str, str] = {}
         self._connected = False
 
     def watch(self, tools: list[dict]) -> list[Finding]:
-        """
-        First call: snapshot the manifest and run static analysis.
-        Subsequent calls: diff against snapshot and return rug pull findings.
-        """
         current = {t.get("name", ""): self._hash_tool(t) for t in tools}
 
         if not self._connected:
@@ -44,8 +41,7 @@ class ManifestWatcher:
                     ],
                 ))
             elif current_hash != self._snapshot[name]:
-                tool = tool_map[name]
-                severity = self._rug_pull_severity(tool)
+                severity = self._rug_pull_severity(tool_map[name])
                 findings.append(Finding(
                     attack_type="rug_pull",
                     severity=severity,
@@ -81,7 +77,6 @@ class ManifestWatcher:
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     def _rug_pull_severity(self, tool: dict) -> str:
-        from mcp_security_tester.static_analyzer.signals import SENSITIVE_PATHS
         text = json.dumps(tool).lower()
         if any(p.lower() in text for p in SENSITIVE_PATHS):
             return "CRITICAL"

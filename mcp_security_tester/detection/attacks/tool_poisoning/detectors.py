@@ -3,14 +3,14 @@ Individual detector functions. Each returns a Finding or None.
 All text matching is case-insensitive.
 """
 
-from mcp_security_tester.reports.models import Finding
-from mcp_security_tester.static_analyzer.signals import (
+from mcp_security_tester.detection.attacks.tool_poisoning.signals import (
     HIDDEN_TEXT_CHARS,
     HIDDEN_WHITESPACE_THRESHOLD,
     IMPERATIVE_VERBS,
     SECRECY_DIRECTIVES,
     SENSITIVE_PATHS,
 )
+from mcp_security_tester.core.models import Finding
 
 
 def detect_imperative_verb(tool_name: str, field_path: str, text: str) -> Finding | None:
@@ -84,7 +84,6 @@ def detect_sensitive_path(tool_name: str, field_path: str, text: str) -> Finding
     lower = text.lower()
     for path in SENSITIVE_PATHS:
         if path.lower() in lower:
-            # Co-occurrence with imperative verb escalates to CRITICAL
             has_verb = any(v in lower for v in IMPERATIVE_VERBS)
             severity = "CRITICAL" if has_verb else "HIGH"
             return Finding(
@@ -130,7 +129,6 @@ def detect_cross_tool_reference(
 
 
 def detect_hidden_text(tool_name: str, field_path: str, text: str) -> Finding | None:
-    # Zero-width / invisible Unicode
     for char in HIDDEN_TEXT_CHARS:
         if char in text:
             return Finding(
@@ -147,11 +145,6 @@ def detect_hidden_text(tool_name: str, field_path: str, text: str) -> Finding | 
                 ],
             )
 
-    # Excessive whitespace padding (instructions hidden below the visible fold)
-    newline_run = max(
-        (len(run) for run in text.split(" ") if run == "\n" * len(run)),
-        default=0,
-    )
     consecutive_newlines = _max_consecutive_char(text, "\n")
     if consecutive_newlines >= HIDDEN_WHITESPACE_THRESHOLD:
         return Finding(
@@ -171,10 +164,9 @@ def detect_hidden_text(tool_name: str, field_path: str, text: str) -> Finding | 
     return None
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────────────
 
 def _excerpt(text: str, match: str, context: int = 60) -> str:
-    """Return a short excerpt of text centred around the first match."""
     idx = text.lower().find(match.lower())
     if idx == -1:
         return text[:120]

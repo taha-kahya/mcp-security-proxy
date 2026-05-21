@@ -3,16 +3,15 @@ Orchestrates all detectors across a full MCP tool manifest.
 Scans every string field recursively — Full-Schema Poisoning coverage.
 """
 
-from mcp_security_tester.reports.models import Finding
-from mcp_security_tester.static_analyzer.detectors import (
+from mcp_security_tester.detection.attacks.tool_poisoning.detectors import (
     detect_cross_tool_reference,
     detect_hidden_text,
     detect_imperative_verb,
     detect_secrecy_directive,
     detect_sensitive_path,
 )
+from mcp_security_tester.core.models import Finding
 
-# Detectors that operate on (tool_name, field_path, text) only
 _SOLO_DETECTORS = [
     detect_imperative_verb,
     detect_secrecy_directive,
@@ -22,7 +21,6 @@ _SOLO_DETECTORS = [
 
 
 def analyze_manifest(tools: list[dict]) -> list[Finding]:
-    """Run all detectors across every tool in the manifest. Returns sorted findings."""
     all_tool_names = [t.get("name", "") for t in tools]
     findings: list[Finding] = []
     for tool in tools:
@@ -35,7 +33,6 @@ def _analyze_tool(tool: dict, all_tool_names: list[str]) -> list[Finding]:
     findings: list[Finding] = []
 
     for field_path, text in _iter_strings(tool):
-        # Skip the tool name itself — not a signal
         if field_path == "name":
             continue
 
@@ -44,7 +41,6 @@ def _analyze_tool(tool: dict, all_tool_names: list[str]) -> list[Finding]:
             if result:
                 findings.append(result)
 
-        # Cross-tool reference needs sibling names
         result = detect_cross_tool_reference(tool_name, field_path, text, all_tool_names)
         if result:
             findings.append(result)
@@ -53,7 +49,6 @@ def _analyze_tool(tool: dict, all_tool_names: list[str]) -> list[Finding]:
 
 
 def _iter_strings(obj: object, path: str = "") -> list[tuple[str, str]]:
-    """Recursively yield (field_path, string_value) for every string in obj."""
     results: list[tuple[str, str]] = []
 
     if isinstance(obj, str):

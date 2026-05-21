@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mcp_security_tester.reports.models import Finding
+from mcp_security_tester.core.models import Finding
 
 
 @dataclass

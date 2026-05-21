@@ -1,6 +1,4 @@
-import dataclasses
 import json
-import shlex
 import sys
 import time
 from datetime import datetime, timezone
@@ -11,11 +9,10 @@ from mcp.client.stdio import stdio_client
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
-from mcp_security_tester.anomaly_detector.detector import AnomalyDetector
-from mcp_security_tester.call_logger.logger import CallLogger, ToolCall
-from mcp_security_tester.proxy.manifest_watcher import ManifestWatcher
-from mcp_security_tester.proxy.output_scanner import OutputScanner
-from mcp_security_tester.reports.models import Finding
+from mcp_security_tester.detection.anomaly.detector import AnomalyDetector
+from mcp_security_tester.detection.attacks import build_registry
+from mcp_security_tester.core.logger import CallLogger, ToolCall
+from mcp_security_tester.core.models import Finding
 
 
 class MCPSecurityProxy:
@@ -27,8 +24,7 @@ class MCPSecurityProxy:
     ):
         self.upstream_command = upstream_command
         self.server_name = server_name
-        self.manifest_watcher = ManifestWatcher(server_name)
-        self.output_scanner = OutputScanner()
+        self._detectors = build_registry(server_name)
         self.call_logger = CallLogger(log_path=log_path)
         self.anomaly_detector = AnomalyDetector()
 
@@ -49,7 +45,9 @@ class MCPSecurityProxy:
                     result = await upstream.list_tools()
                     tools_raw = [_tool_to_dict(t) for t in result.tools]
 
-                    findings = self.manifest_watcher.watch(tools_raw)
+                    findings = []
+                    for detector in self._detectors:
+                        findings.extend(detector.scan_manifest(tools_raw))
                     for f in findings:
                         _alert(f)
 
@@ -64,8 +62,10 @@ class MCPSecurityProxy:
                     result = await upstream.call_tool(name, arguments)
                     duration_ms = (time.monotonic() - start) * 1000
 
-                    output_findings = self.output_scanner.scan(name, result.content)
                     response_text = _extract_text(result.content)
+                    output_findings = []
+                    for detector in self._detectors:
+                        output_findings.extend(detector.scan_output(name, response_text))
 
                     call = ToolCall(
                         tool_name=name,
@@ -80,7 +80,6 @@ class MCPSecurityProxy:
                     for f in output_findings + anomaly_findings:
                         _alert(f)
 
-                    # Return full result to preserve structuredContent (MCP protocol 2025-11-25)
                     return result
 
                 async with stdio_server() as (read_stream, write_stream):

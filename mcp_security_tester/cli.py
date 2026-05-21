@@ -14,10 +14,10 @@ from pathlib import Path
 
 import click
 
-from mcp_security_tester.manifest_collector import collector
-from mcp_security_tester.reports.json_reporter import to_json, write_json
-from mcp_security_tester.reports.models import Report
-from mcp_security_tester.static_analyzer.analyzer import analyze_manifest
+from mcp_security_tester.core import collector
+from mcp_security_tester.detection.attacks.tool_poisoning.analyzer import analyze_manifest
+from mcp_security_tester.core.reporter import to_json, write_json
+from mcp_security_tester.core.models import Report
 
 _SEVERITY_COLORS = {"CRITICAL": "red", "HIGH": "yellow", "MEDIUM": "cyan", "LOW": "white"}
 

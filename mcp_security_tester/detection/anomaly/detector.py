@@ -1,13 +1,13 @@
 import fnmatch
 from collections import Counter
 
-from mcp_security_tester.anomaly_detector.patterns import (
+from mcp_security_tester.detection.anomaly.patterns import (
     HIGH_RISK_TOOLS,
     SEQUENCE_PATTERNS,
     SequencePattern,
 )
-from mcp_security_tester.call_logger.logger import ToolCall
-from mcp_security_tester.reports.models import Finding
+from mcp_security_tester.core.logger import ToolCall
+from mcp_security_tester.core.models import Finding
 
 
 class AnomalyDetector:
