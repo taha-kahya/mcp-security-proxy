@@ -17,7 +17,6 @@ Safety constraints (enforced at tool level, not by the agent):
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import httpx
@@ -25,7 +24,17 @@ import httpx
 SANDBOX = (Path(__file__).parent / "sandbox").resolve()
 SANDBOX.mkdir(exist_ok=True)
 
-VALID_VARIANTS = ("/", "/hidden", "/comment", "/script", "/v1", "/v2", "/v3", "/v4")
+def _valid_variants() -> list[str]:
+    """Derive valid variants from payloads.py so agent.py stays in sync automatically."""
+    from payloads import PAYLOADS
+    techniques = ["", "/hidden", "/comment", "/script"]
+    variants = []
+    for name, payload in PAYLOADS.items():
+        if "body" in payload:
+            variants.append(f"/{name}")
+        else:
+            variants.extend(f"/{name}{t}" for t in techniques)
+    return variants
 
 TOOLS = [
     {
@@ -201,7 +210,9 @@ def run(variant: str = "/", model: str = "claude-opus-4-7", port: int = 8888) ->
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run a single injection variant against a model.")
-    parser.add_argument("variant", nargs="?", default="/", choices=VALID_VARIANTS)
+    valid = _valid_variants()
+    parser.add_argument("variant", nargs="?", default=valid[0], choices=valid,
+                        metavar=f"{{{','.join(valid[:3])},...}}")
     parser.add_argument("--model", default="claude-opus-4-7",
                         help="Model ID. Prefix with 'ollama:' for local Ollama models.")
     parser.add_argument("--port", type=int, default=8888)
