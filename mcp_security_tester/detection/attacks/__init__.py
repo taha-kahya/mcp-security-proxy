@@ -2,6 +2,7 @@ from mcp_security_tester.detection.attacks.base import AttackDetector
 from mcp_security_tester.detection.attacks.credential_leak.attack import CredentialLeakDetector
 from mcp_security_tester.detection.attacks.rug_pull.attack import RugPullDetector
 from mcp_security_tester.detection.attacks.tool_poisoning.attack import ToolPoisoningDetector
+from mcp_security_tester.detection.attacks.unicode_injection.attack import UnicodeInjectionDetector
 
 
 def build_registry(server_name: str) -> list[AttackDetector]:
@@ -9,4 +10,5 @@ def build_registry(server_name: str) -> list[AttackDetector]:
         ToolPoisoningDetector(),
         RugPullDetector(server_name),
         CredentialLeakDetector(),
+        UnicodeInjectionDetector(),
     ]
