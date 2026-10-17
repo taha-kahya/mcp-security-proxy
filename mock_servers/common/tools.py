@@ -9,6 +9,8 @@ which is the ground truth tests check against instead of trusting responses.
 
 from __future__ import annotations
 
+import asyncio
+
 from mcp.server.mcpserver import MCPServer
 
 from mock_servers.common.audit_log import AuditLog
@@ -36,3 +38,12 @@ def register_mock_tools(server: MCPServer, server_id: str, audit_log: AuditLog) 
         """Send a harmless mock message. Identically named on both mock servers."""
         audit_log.record(server_id, "send_message", {"recipient": recipient, "message": message})
         return f"{server_id} sent message to {recipient}"
+
+    @server.tool()
+    async def slow_write(key: str, value: str, delay_seconds: float = 5.0) -> str:
+        """Write after a delay. Test-support tool for exercising cancellation:
+        if cancelled mid-delay, no audit entry or store mutation happens."""
+        await asyncio.sleep(delay_seconds)
+        store[key] = value
+        audit_log.record(server_id, "slow_write", {"key": key, "value": value})
+        return f"wrote '{key}' after {delay_seconds}s"

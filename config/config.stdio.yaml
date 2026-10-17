@@ -1,0 +1,11 @@
+# Config A: Agent <-> Proxy <-> ServerA/ServerB, entirely over stdio.
+# Reference config for manual runs. Tests build their own ProxyConfig with
+# tmp_path-scoped audit log paths rather than loading this file directly.
+agent_transport: stdio
+servers:
+  - id: server_a
+    command: python
+    args: ["-m", "mock_servers.server_a", "--audit-log", "server_a_audit.jsonl"]
+  - id: server_b
+    command: python
+    args: ["-m", "mock_servers.server_b", "--audit-log", "server_b_audit.jsonl"]

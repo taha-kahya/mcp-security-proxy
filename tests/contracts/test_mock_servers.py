@@ -94,7 +94,12 @@ async def test_discovery_lists_expected_tools(
 ) -> None:
     async with mock_server_session(server_id, transport, tmp_path / "audit.jsonl") as session:
         tools = await session.list_tools()
-        assert {t.name for t in tools.tools} == {"read_record", "write_record", "send_message"}
+        assert {t.name for t in tools.tools} == {
+            "read_record",
+            "write_record",
+            "send_message",
+            "slow_write",
+        }
 
 
 @pytest.mark.parametrize("transport", TRANSPORTS)
