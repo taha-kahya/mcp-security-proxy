@@ -15,3 +15,4 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0003](0003-mock-server-hosting-subprocess.md) | Proxy spawns mock servers as local subprocesses | Accepted |
 | [0004](0004-scripted-harness-over-llm-agent.md) | Automated V1 acceptance tests use a scripted harness, not an LLM agent | Accepted |
 | [0005](0005-codex-qwen-smoke-test-isolated-mr.md) | Real-agent smoke test is a separate, non-CI, final MR | Accepted |
+| [0006](0006-mock-server-http-port-allocation.md) | Mock server default ports and test port allocation for Streamable HTTP | Accepted |

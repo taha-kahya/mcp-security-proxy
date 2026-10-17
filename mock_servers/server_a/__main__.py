@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
+from mock_servers.common.cli import parse_mock_server_args
 from mock_servers.server_a.server import build_server
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Mock MCP server A (stdio)")
-    parser.add_argument(
-        "--audit-log",
-        type=Path,
-        default=Path("server_a_audit.jsonl"),
-        help="Path to the append-only JSONL audit log.",
+    args = parse_mock_server_args(
+        description="Mock MCP server A (stdio or streamable-http)",
+        default_audit_log=Path("server_a_audit.jsonl"),
+        default_port=8001,
     )
-    args = parser.parse_args()
-    build_server(args.audit_log).run(transport="stdio")
+    server = build_server(args.audit_log)
+    if args.transport == "stdio":
+        server.run(transport="stdio")
+    else:
+        server.run(transport="streamable-http", host=args.host, port=args.port)
 
 
 if __name__ == "__main__":
