@@ -9,13 +9,13 @@ or policy logic — that belongs to later phases.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
 from mcp import ClientSession, types
 from mcp.server.context import ServerRequestContext
 from mcp.server.lowlevel import Server
 
-from mcp_security_proxy.app.config import ProxyConfig
+from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
 from mcp_security_proxy.core.proxy.codec.jsonrpc import (
     ensure_call_tool_result,
     unknown_tool_error,
@@ -23,11 +23,23 @@ from mcp_security_proxy.core.proxy.codec.jsonrpc import (
 from mcp_security_proxy.core.proxy.routing.correlation import CallStatus, CorrelationTracker
 from mcp_security_proxy.core.proxy.routing.table import RoutingTable
 from mcp_security_proxy.core.proxy.transport.stdio_client import connect_stdio_upstream
+from mcp_security_proxy.core.proxy.transport.streamable_http_client import (
+    spawn_streamable_http_upstream,
+)
 
 
 class ProxyApp:
     def __init__(self, server: Server) -> None:
         self.server = server
+
+
+def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextManager[ClientSession]:
+    if upstream.transport == "stdio":
+        return connect_stdio_upstream(upstream.command, upstream.args)
+    assert upstream.port is not None and upstream.url is not None  # enforced by config validation
+    return spawn_streamable_http_upstream(
+        upstream.command, upstream.args, upstream.host, upstream.port, upstream.url
+    )
 
 
 @asynccontextmanager
@@ -38,9 +50,7 @@ async def build_app(config: ProxyConfig) -> AsyncIterator[ProxyApp]:
 
     async with AsyncExitStack() as stack:
         for upstream in config.servers:
-            session = await stack.enter_async_context(
-                connect_stdio_upstream(upstream.command, upstream.args)
-            )
+            session = await stack.enter_async_context(_connect_upstream(upstream))
             sessions[upstream.id] = session
             discovered = await session.list_tools()
             routing_table.register_server_tools(upstream.id, discovered.tools)

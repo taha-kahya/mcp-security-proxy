@@ -1,9 +1,13 @@
-"""End-to-end integration tests for the proxy over stdio (Config A).
+"""End-to-end integration tests for the proxy, parametrized over both V1
+configs: Config A (stdio end-to-end) and Config B (Streamable HTTP
+end-to-end).
 
 Verifies the V1 acceptance criteria: discovery and calls work across both
 mock servers, errors and cancellations behave correctly, and no request is
 ever routed to the wrong server -- verified against each server's independent
-audit log, not just the proxy's own responses.
+audit log, not just the proxy's own responses. Passing identically for both
+transports is itself the proof that the routing/codec/correlation core is
+transport-agnostic (see 0007/0008).
 """
 
 from __future__ import annotations
@@ -12,7 +16,11 @@ import asyncio
 import sys
 from pathlib import Path
 
-from tests.harness.client import build_stdio_proxy_config, mock_server_entry, proxy_session
+import pytest
+
+from tests.harness.client import build_proxy_config, mock_server_entry, proxy_session
+
+CONFIGS = ["stdio", "streamable-http"]
 
 
 def _read_audit_entries(path: Path) -> list[str]:
@@ -21,12 +29,16 @@ def _read_audit_entries(path: Path) -> list[str]:
     return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-async def test_discovery_merges_both_servers_with_disambiguated_names(tmp_path: Path) -> None:
-    config = build_stdio_proxy_config(
+@pytest.mark.parametrize("transport", CONFIGS)
+async def test_discovery_merges_both_servers_with_disambiguated_names(
+    transport: str, tmp_path: Path
+) -> None:
+    config = build_proxy_config(
         [
-            mock_server_entry("server_a", tmp_path / "a.jsonl"),
-            mock_server_entry("server_b", tmp_path / "b.jsonl"),
-        ]
+            mock_server_entry("server_a", tmp_path / "a.jsonl", transport),
+            mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
+        ],
+        agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         tools = await session.list_tools()
@@ -37,10 +49,17 @@ async def test_discovery_merges_both_servers_with_disambiguated_names(tmp_path: 
             assert f"{server_id}__{bare_name}" in names
 
 
-async def test_calls_route_to_correct_server_despite_name_collision(tmp_path: Path) -> None:
+@pytest.mark.parametrize("transport", CONFIGS)
+async def test_calls_route_to_correct_server_despite_name_collision(
+    transport: str, tmp_path: Path
+) -> None:
     a_log, b_log = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
-    config = build_stdio_proxy_config(
-        [mock_server_entry("server_a", a_log), mock_server_entry("server_b", b_log)]
+    config = build_proxy_config(
+        [
+            mock_server_entry("server_a", a_log, transport),
+            mock_server_entry("server_b", b_log, transport),
+        ],
+        agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         r_a = await session.call_tool(
@@ -63,10 +82,17 @@ async def test_calls_route_to_correct_server_despite_name_collision(tmp_path: Pa
     assert '"recipient": "carol"' in b_entries[0]
 
 
-async def test_unknown_tool_name_errors_without_touching_either_server(tmp_path: Path) -> None:
+@pytest.mark.parametrize("transport", CONFIGS)
+async def test_unknown_tool_name_errors_without_touching_either_server(
+    transport: str, tmp_path: Path
+) -> None:
     a_log, b_log = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
-    config = build_stdio_proxy_config(
-        [mock_server_entry("server_a", a_log), mock_server_entry("server_b", b_log)]
+    config = build_proxy_config(
+        [
+            mock_server_entry("server_a", a_log, transport),
+            mock_server_entry("server_b", b_log, transport),
+        ],
+        agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         try:
@@ -80,12 +106,14 @@ async def test_unknown_tool_name_errors_without_touching_either_server(tmp_path:
     assert _read_audit_entries(b_log) == []
 
 
-async def test_tool_level_error_passes_through_unchanged(tmp_path: Path) -> None:
-    config = build_stdio_proxy_config(
+@pytest.mark.parametrize("transport", CONFIGS)
+async def test_tool_level_error_passes_through_unchanged(transport: str, tmp_path: Path) -> None:
+    config = build_proxy_config(
         [
-            mock_server_entry("server_a", tmp_path / "a.jsonl"),
-            mock_server_entry("server_b", tmp_path / "b.jsonl"),
-        ]
+            mock_server_entry("server_a", tmp_path / "a.jsonl", transport),
+            mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
+        ],
+        agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         result = await session.call_tool("server_a__read_record", {"key": "missing"})
@@ -93,10 +121,17 @@ async def test_tool_level_error_passes_through_unchanged(tmp_path: Path) -> None
     assert result.is_error
 
 
-async def test_cancellation_mid_call_does_not_complete_the_write(tmp_path: Path) -> None:
+@pytest.mark.parametrize("transport", CONFIGS)
+async def test_cancellation_mid_call_does_not_complete_the_write(
+    transport: str, tmp_path: Path
+) -> None:
     a_log = tmp_path / "a.jsonl"
-    config = build_stdio_proxy_config(
-        [mock_server_entry("server_a", a_log), mock_server_entry("server_b", tmp_path / "b.jsonl")]
+    config = build_proxy_config(
+        [
+            mock_server_entry("server_a", a_log, transport),
+            mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
+        ],
+        agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         task = asyncio.create_task(
@@ -124,11 +159,14 @@ async def test_cancellation_mid_call_does_not_complete_the_write(tmp_path: Path)
 async def test_dead_upstream_connection_fails_cleanly_without_affecting_other_server(
     tmp_path: Path,
 ) -> None:
+    """stdio only: HTTP connection-drop/reconnect semantics are explicitly
+    out of scope for V1 (see 0008), so there is nothing equivalent to assert
+    there yet."""
     flaky_log = tmp_path / "flaky.jsonl"
     a_log = tmp_path / "a.jsonl"
-    config = build_stdio_proxy_config(
+    config = build_proxy_config(
         [
-            mock_server_entry("server_a", a_log),
+            mock_server_entry("server_a", a_log, "stdio"),
             {
                 "id": "flaky",
                 "command": sys.executable,
@@ -139,7 +177,8 @@ async def test_dead_upstream_connection_fails_cleanly_without_affecting_other_se
                     str(flaky_log),
                 ],
             },
-        ]
+        ],
+        agent_transport="stdio",
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         first = await session.call_tool("flaky__crash_after_response", {"key": "k", "value": "v"})

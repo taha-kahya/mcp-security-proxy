@@ -11,7 +11,6 @@ from __future__ import annotations
 import socket
 import subprocess
 import sys
-import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,6 +20,8 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
+from mcp_security_proxy.core.proxy.transport.streamable_http_client import wait_until_listening
+
 SERVER_IDS = ["server_a", "server_b"]
 TRANSPORTS = ["stdio", "streamable-http"]
 
@@ -29,17 +30,6 @@ def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
-
-
-def _wait_until_listening(host: str, port: int, timeout_seconds: float = 5.0) -> None:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=0.2):
-                return
-        except OSError:
-            time.sleep(0.05)
-    raise TimeoutError(f"mock server did not start listening on {host}:{port}")
 
 
 @asynccontextmanager
@@ -75,7 +65,7 @@ async def mock_server_session(
         stderr=subprocess.DEVNULL,
     )
     try:
-        _wait_until_listening(host, port)
+        wait_until_listening(host, port)
         url = f"http://{host}:{port}/mcp"
         async with streamable_http_client(url) as streams:
             read, write = streams[0], streams[1]
