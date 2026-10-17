@@ -26,7 +26,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_security_proxy", "mock_servers"]
+packages = ["src/mcp_security_proxy", "fixtures"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -44,5 +44,5 @@ python_version = "3.11"
 disallow_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
-packages = ["mcp_security_proxy", "mock_servers"]
+packages = ["mcp_security_proxy", "fixtures"]
 mypy_path = ["src"]

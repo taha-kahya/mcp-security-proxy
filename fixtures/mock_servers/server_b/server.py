@@ -4,8 +4,8 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 
-from mock_servers.common.audit_log import AuditLog
-from mock_servers.common.tools import register_mock_tools
+from fixtures.mock_servers.common.audit_log import AuditLog
+from fixtures.mock_servers.common.tools import register_mock_tools
 
 SERVER_ID = "server_b"
 

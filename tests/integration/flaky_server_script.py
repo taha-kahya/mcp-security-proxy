@@ -1,8 +1,9 @@
 """Test-only fixture: an MCP server that crashes shortly after answering one
 call, to exercise the proxy's handling of a dropped upstream stdio connection.
 
-Not part of the reusable mock_servers package since crashing deliberately
-isn't a "harmless mock tool" — it's test-failure-injection scaffolding.
+Not part of the reusable fixtures/mock_servers package since crashing
+deliberately isn't a "harmless mock tool" — it's test-failure-injection
+scaffolding.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 
 from mcp.server.mcpserver import MCPServer
 
-from mock_servers.common.audit_log import AuditLog
+from fixtures.mock_servers.common.audit_log import AuditLog
 
 SERVER_ID = "flaky_server"
 

@@ -5,7 +5,7 @@ agent_transport: stdio
 servers:
   - id: server_a
     command: python
-    args: ["-m", "mock_servers.server_a", "--audit-log", "server_a_audit.jsonl"]
+    args: ["-m", "fixtures.mock_servers.server_a", "--audit-log", "server_a_audit.jsonl"]
   - id: server_b
     command: python
-    args: ["-m", "mock_servers.server_b", "--audit-log", "server_b_audit.jsonl"]
+    args: ["-m", "fixtures.mock_servers.server_b", "--audit-log", "server_b_audit.jsonl"]

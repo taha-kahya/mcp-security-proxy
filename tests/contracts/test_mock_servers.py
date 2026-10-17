@@ -39,7 +39,7 @@ async def mock_server_session(
     if transport == "stdio":
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", f"mock_servers.{server_id}", "--audit-log", str(audit_log_path)],
+            args=["-m", f"fixtures.mock_servers.{server_id}", "--audit-log", str(audit_log_path)],
         )
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             await session.initialize()
@@ -51,7 +51,7 @@ async def mock_server_session(
         [
             sys.executable,
             "-m",
-            f"mock_servers.{server_id}",
+            f"fixtures.mock_servers.{server_id}",
             "--transport",
             "streamable-http",
             "--host",

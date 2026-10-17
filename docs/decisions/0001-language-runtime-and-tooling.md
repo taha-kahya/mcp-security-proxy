@@ -17,7 +17,7 @@ implementation, rather than silently chosen.
 - **Env/dependency manager:** `uv`, matching the conventions used by the upstream
   `mcp` SDK itself.
 - **Tests:** `pytest` + `pytest-asyncio` (the SDK is async/anyio-based).
-- **Lint/format:** `ruff`. **Type-check:** `mypy` on `src/`, `mock_servers/`,
+- **Lint/format:** `ruff`. **Type-check:** `mypy` on `src/`, `fixtures/mock_servers/`,
   `tests/harness/`, at moderate (not full) strictness to avoid friction at the SDK
   boundary.
 - **Config validation:** `pydantic` v2 — already a transitive dependency of `mcp`.

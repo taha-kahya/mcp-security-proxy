@@ -8,14 +8,14 @@ servers:
   - id: server_a
     transport: streamable-http
     command: python
-    args: ["-m", "mock_servers.server_a", "--transport", "streamable-http", "--port", "8001", "--audit-log", "server_a_audit.jsonl"]
+    args: ["-m", "fixtures.mock_servers.server_a", "--transport", "streamable-http", "--port", "8001", "--audit-log", "server_a_audit.jsonl"]
     host: 127.0.0.1
     port: 8001
     url: "http://127.0.0.1:8001/mcp"
   - id: server_b
     transport: streamable-http
     command: python
-    args: ["-m", "mock_servers.server_b", "--transport", "streamable-http", "--port", "8002", "--audit-log", "server_b_audit.jsonl"]
+    args: ["-m", "fixtures.mock_servers.server_b", "--transport", "streamable-http", "--port", "8002", "--audit-log", "server_b_audit.jsonl"]
     host: 127.0.0.1
     port: 8002
     url: "http://127.0.0.1:8002/mcp"

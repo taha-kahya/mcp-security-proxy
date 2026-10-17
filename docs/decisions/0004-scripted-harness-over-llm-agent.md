@@ -31,6 +31,6 @@ the MCP client protocol.
 ## Consequences
 
 The scripted harness is CI-specific scaffolding, intentionally kept inside
-`tests/harness/` rather than the top-level `mock_servers/` package, since it is
+`tests/harness/` rather than the top-level `fixtures/mock_servers/` package, since it is
 not reused by the Codex/Qwen smoke test in MR7 — Codex CLI itself plays the host
 role there instead.

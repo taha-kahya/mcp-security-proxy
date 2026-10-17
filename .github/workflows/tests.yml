@@ -28,7 +28,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Type check
-        run: uv run mypy src mock_servers tests/harness
+        run: uv run mypy src fixtures/mock_servers tests/harness
 
       - name: Test
         run: uv run pytest

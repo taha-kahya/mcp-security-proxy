@@ -13,7 +13,7 @@ import asyncio
 
 from mcp.server.mcpserver import MCPServer
 
-from mock_servers.common.audit_log import AuditLog
+from fixtures.mock_servers.common.audit_log import AuditLog
 
 
 def register_mock_tools(server: MCPServer, server_id: str, audit_log: AuditLog) -> None:

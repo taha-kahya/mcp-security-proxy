@@ -33,7 +33,7 @@ def free_port() -> int:
 
 
 def mock_server_entry(server_id: str, audit_log_path: Path, transport: str) -> dict[str, Any]:
-    module = f"mock_servers.{server_id}"
+    module = f"fixtures.mock_servers.{server_id}"
     if transport == "stdio":
         return {
             "id": server_id,

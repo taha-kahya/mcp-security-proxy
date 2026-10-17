@@ -25,7 +25,7 @@ uv sync --all-extras --dev
 ```sh
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src mock_servers tests/harness
+uv run mypy src fixtures/mock_servers tests/harness
 uv run pytest
 ```
 
@@ -64,8 +64,8 @@ for why.
 Useful for poking at a server directly without the proxy in front of it:
 
 ```sh
-uv run python -m mock_servers.server_a --audit-log /tmp/a.jsonl
-uv run python -m mock_servers.server_a --transport streamable-http --port 8001 --audit-log /tmp/a.jsonl
+uv run python -m fixtures.mock_servers.server_a --audit-log /tmp/a.jsonl
+uv run python -m fixtures.mock_servers.server_a --transport streamable-http --port 8001 --audit-log /tmp/a.jsonl
 ```
 
 Every `write_record`/`send_message`/`slow_write` call appends an entry to the
@@ -75,7 +75,7 @@ client's or the proxy's own claims.
 
 ## Adding a new mock tool
 
-Mock tools live in `mock_servers/common/tools.py` and are shared by both
+Mock tools live in `fixtures/mock_servers/common/tools.py` and are shared by both
 `server_a` and `server_b` via `register_mock_tools`. To add one:
 
 1. Add a new `@server.tool()`-decorated function inside `register_mock_tools`.
@@ -94,7 +94,8 @@ Mock tools live in `mock_servers/common/tools.py` and are shared by both
 
 ```text
 src/mcp_security_proxy/   # the proxy itself (app wiring, core/proxy routing+transport+codec)
-mock_servers/             # two harmless mock MCP servers, reused by tests and manual runs
+fixtures/
+  mock_servers/            # two harmless mock MCP servers, reused by tests and manual runs
 config/                   # reference configs for Config A (stdio) and Config B (HTTP)
 tests/
   contracts/               # fast, no-subprocess unit tests + mock server contract tests
