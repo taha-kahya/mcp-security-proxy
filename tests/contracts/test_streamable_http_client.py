@@ -92,4 +92,3 @@ async def test_spawn_does_not_try_to_terminate_an_already_exited_process() -> No
             pass
     except UpstreamProcessExited:
         pass
-
