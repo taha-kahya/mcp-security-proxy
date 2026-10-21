@@ -12,21 +12,42 @@ from __future__ import annotations
 import asyncio
 import socket
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 
-def wait_until_listening(host: str, port: int, timeout_seconds: float = 10.0) -> None:
+class UpstreamProcessExited(RuntimeError):
+    def __init__(self, exit_code: int) -> None:
+        self.exit_code = exit_code
+        super().__init__(f"upstream server process exited with code {exit_code} before listening")
+
+
+def wait_until_listening(
+    poll: Callable[[], int | None],
+    host: str,
+    port: int,
+    timeout_seconds: float = 10.0,
+    settle_seconds: float = 0.3,
+) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        exit_code = poll()
+        if exit_code is not None:
+            raise UpstreamProcessExited(exit_code)
         try:
             with socket.create_connection((host, port), timeout=0.2):
-                return
+                pass
         except OSError:
             time.sleep(0.05)
+            continue
+        time.sleep(settle_seconds)
+        exit_code = poll()
+        if exit_code is not None:
+            raise UpstreamProcessExited(exit_code)
+        return
     raise TimeoutError(f"upstream server did not start listening on {host}:{port}")
 
 
@@ -45,16 +66,17 @@ async def spawn_streamable_http_upstream(
         stderr=asyncio.subprocess.DEVNULL,
     )
     try:
-        await asyncio.to_thread(wait_until_listening, host, port)
+        await asyncio.to_thread(wait_until_listening, lambda: process.returncode, host, port)
         async with streamable_http_client(url) as streams:
             read, write = streams[0], streams[1]
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 yield session
     finally:
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()

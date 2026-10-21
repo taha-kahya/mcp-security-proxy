@@ -98,7 +98,7 @@ async def proxy_session(config: dict[str, Any], config_path: Path) -> AsyncItera
         stderr=asyncio.subprocess.DEVNULL,
     )
     try:
-        await asyncio.to_thread(wait_until_listening, host, port)
+        await asyncio.to_thread(wait_until_listening, lambda: process.returncode, host, port)
         url = f"http://{host}:{port}/mcp"
         async with streamable_http_client(url) as streams:
             read, write = streams[0], streams[1]

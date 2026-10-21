@@ -65,7 +65,7 @@ async def mock_server_session(
         stderr=subprocess.DEVNULL,
     )
     try:
-        wait_until_listening(host, port)
+        wait_until_listening(proc.poll, host, port)
         url = f"http://{host}:{port}/mcp"
         async with streamable_http_client(url) as streams:
             read, write = streams[0], streams[1]
