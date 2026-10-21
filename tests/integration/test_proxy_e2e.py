@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from mcp import types
+from mcp.shared.exceptions import MCPError
 
 from tests.harness.client import build_proxy_config, mock_server_entry, proxy_session
 
@@ -95,13 +97,10 @@ async def test_unknown_tool_name_errors_without_touching_either_server(
         agent_transport=transport,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
-        try:
+        with pytest.raises(MCPError) as exc_info:
             await session.call_tool("server_a__nonexistent", {})
-            raised = False
-        except Exception:
-            raised = True
 
-    assert raised
+    assert exc_info.value.error.code == types.INVALID_PARAMS
     assert _read_audit_entries(a_log) == []
     assert _read_audit_entries(b_log) == []
 

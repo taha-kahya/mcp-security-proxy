@@ -15,7 +15,7 @@ from mcp.shared.exceptions import MCPError
 
 
 def unknown_tool_error(external_name: str) -> MCPError:
-    return MCPError(code=types.METHOD_NOT_FOUND, message=f"Unknown tool: {external_name}")
+    return MCPError(code=types.INVALID_PARAMS, message=f"Unknown tool: {external_name}")
 
 
 def unexpected_upstream_result_error(external_name: str, result: object) -> MCPError:
