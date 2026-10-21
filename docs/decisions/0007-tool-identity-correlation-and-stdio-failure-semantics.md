@@ -54,11 +54,15 @@ work normally (verified in
 `test_dead_upstream_connection_fails_cleanly_without_affecting_other_server`).
 
 **Unknown-tool and result-type errors.** `core/proxy/codec/jsonrpc.py` raises
-`MCPError(code=METHOD_NOT_FOUND, ...)` for an unresolvable external tool name
-— a protocol-level error, distinct from a tool-level failure
+`MCPError(code=INVALID_PARAMS, ...)` for an unresolvable external tool name —
+a protocol-level error, distinct from a tool-level failure
 (`CallToolResult(is_error=True)`), which is reserved for "the tool ran but
 failed" (e.g. reading a missing key) and is passed through from the upstream
-server unchanged.
+server unchanged. `tools/call` is itself a valid method; only the `name`
+param is invalid, so per the MCP spec (2025-06-18, Tools > Error Handling)
+this is `INVALID_PARAMS`, not `METHOD_NOT_FOUND` — an earlier version of this
+proxy used `METHOD_NOT_FOUND`, which was a spec-compliance bug, not a
+deliberate choice.
 
 ## Alternatives considered
 
@@ -78,3 +82,11 @@ an upstream server mid-session is not reflected until the proxy restarts —
 an explicit, documented V1 limitation, not an oversight. Detecting and
 re-validating changed upstream definitions is in scope for the Temporal
 defense category in a much later phase (V4), not V1.
+
+`CorrelationTracker.mark_server_unknown` is also not wired up in V1: nothing
+in `wiring.py` calls it, so a dropped connection with calls still in flight
+against it reports those calls as `FAILED` (via the `except BaseException`
+path in `on_call_tool`), not `UNKNOWN`, even though the architecture calls
+for outcome-unknown reporting when a call may already have taken effect.
+This is a known limitation, not a dead parameter — wiring it up is deferred
+past V1.

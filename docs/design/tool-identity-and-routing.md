@@ -38,8 +38,10 @@ which original tool it actually refers to.
 - **Dispatch:** `src/mcp_security_proxy/app/wiring.py`'s `on_call_tool`
   resolves the external name, looks up the matching upstream `ClientSession`
   by `server_id`, and calls the *bare* name on it. An external name that
-  doesn't resolve raises a protocol-level `MCPError(METHOD_NOT_FOUND)`
-  (`core/proxy/codec/jsonrpc.py`) before any upstream server is touched.
+  doesn't resolve raises a protocol-level `MCPError(INVALID_PARAMS)`
+  (`core/proxy/codec/jsonrpc.py`) before any upstream server is touched:
+  `tools/call` is itself a valid method, so per the MCP spec only the tool
+  name is invalid, not the method.
 
 ## Why the low-level `Server`, not `MCPServer`'s mount/composition feature
 
@@ -71,3 +73,7 @@ SDK itself.
   correlation code unchanged; only the transport adapters differ. This was
   verified, not assumed — MR5 shipped with zero diff in `routing/`, `codec/`,
   or `correlation.py`.
+- **Outcome-unknown reporting is not wired up.** `CorrelationTracker.
+  mark_server_unknown` exists but nothing calls it yet; a dropped connection
+  with calls in flight currently surfaces those calls as `FAILED`, not
+  `UNKNOWN`. Wiring this up is deferred past V1 — see 0007.

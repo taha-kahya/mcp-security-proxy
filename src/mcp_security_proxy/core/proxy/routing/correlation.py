@@ -7,6 +7,10 @@ which upstream server each in-flight call belongs to, so that if a server's
 connection drops while calls are in flight, those calls can be reported as
 outcome-unknown rather than silently dropped or misattributed to another
 server.
+
+`mark_server_unknown` is not called anywhere yet (known V1 limitation, see
+0007): `wiring.py`'s `on_call_tool` currently ends an interrupted call as
+`FAILED`, not `UNKNOWN`, so this reporting is not actually wired up.
 """
 
 from __future__ import annotations
