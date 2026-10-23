@@ -25,12 +25,24 @@ class UpstreamProcessExited(RuntimeError):
         super().__init__(f"upstream server process exited with code {exit_code} before listening")
 
 
+class UpstreamPortInUse(RuntimeError):
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        super().__init__(f"{host}:{port} is already in use by another process")
+
+
+def ensure_port_free(host: str, port: int) -> None:
+    try:
+        with socket.create_connection((host, port), timeout=0.2):
+            pass
+    except OSError:
+        return
+    raise UpstreamPortInUse(host, port)
+
+
 def wait_until_listening(
-    poll: Callable[[], int | None],
-    host: str,
-    port: int,
-    timeout_seconds: float = 10.0,
-    settle_seconds: float = 0.3,
+    poll: Callable[[], int | None], host: str, port: int, timeout_seconds: float = 10.0
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
@@ -39,15 +51,9 @@ def wait_until_listening(
             raise UpstreamProcessExited(exit_code)
         try:
             with socket.create_connection((host, port), timeout=0.2):
-                pass
+                return
         except OSError:
             time.sleep(0.05)
-            continue
-        time.sleep(settle_seconds)
-        exit_code = poll()
-        if exit_code is not None:
-            raise UpstreamProcessExited(exit_code)
-        return
     raise TimeoutError(f"upstream server did not start listening on {host}:{port}")
 
 
@@ -55,6 +61,8 @@ def wait_until_listening(
 async def spawn_streamable_http_upstream(
     command: str, args: list[str], host: str, port: int, url: str
 ) -> AsyncIterator[ClientSession]:
+    await asyncio.to_thread(ensure_port_free, host, port)
+
     # stdout/stderr must never be inherited: if the proxy's own agent-facing
     # transport is stdio, an inherited stdout here would interleave this
     # subprocess's own output (e.g. uvicorn's access log) into the proxy's
