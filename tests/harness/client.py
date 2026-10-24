@@ -121,6 +121,39 @@ def build_proxy_config(
     return config
 
 
+PROXY_MODULE_ARGS = ["-m", "mcp_security_proxy.app.main", "--config"]
+
+
+def write_config(config: dict[str, Any], config_path: Path) -> None:
+    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+@asynccontextmanager
+async def running_http_proxy(config: dict[str, Any], config_path: Path) -> AsyncIterator[str]:
+    """Run the proxy's Streamable HTTP listener and yield its MCP endpoint URL."""
+    write_config(config, config_path)
+    host, port = config["agent_host"], config["agent_port"]
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        *PROXY_MODULE_ARGS,
+        str(config_path),
+        cwd=str(REPO_ROOT),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    try:
+        await asyncio.to_thread(wait_until_listening, lambda: process.returncode, host, port)
+        yield f"http://{host}:{port}/mcp"
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                process.kill()
+                await process.wait()
+
+
 @asynccontextmanager
 async def proxy_session(
     config: dict[str, Any], config_path: Path, bearer_token: str | None = DEFAULT_TOKEN
@@ -130,12 +163,11 @@ async def proxy_session(
     `bearer_token` is sent as the `Authorization` header over Streamable HTTP
     (None sends no header); it is ignored over stdio.
     """
-    config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
-
     if config["agent_transport"] == "stdio":
+        write_config(config, config_path)
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-m", "mcp_security_proxy.app.main", "--config", str(config_path)],
+            args=[*PROXY_MODULE_ARGS, str(config_path)],
             cwd=str(REPO_ROOT),
         )
         async with stdio_client(params) as (read, write):
@@ -144,32 +176,13 @@ async def proxy_session(
                 yield session
         return
 
-    host, port = config["agent_host"], config["agent_port"]
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "mcp_security_proxy.app.main",
-        "--config",
-        str(config_path),
-        cwd=str(REPO_ROOT),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    try:
-        await asyncio.to_thread(wait_until_listening, lambda: process.returncode, host, port)
-        headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
-        async with (
-            httpx2.AsyncClient(headers=headers, timeout=_HTTP_TIMEOUT) as http_client,
-            streamable_http_client(f"http://{host}:{port}/mcp", http_client=http_client) as streams,
-        ):
-            read, write = streams[0], streams[1]
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
-    finally:
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5)
-        except TimeoutError:
-            process.kill()
-            await process.wait()
+    headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
+    async with (
+        running_http_proxy(config, config_path) as url,
+        httpx2.AsyncClient(headers=headers, timeout=_HTTP_TIMEOUT) as http_client,
+        streamable_http_client(url, http_client=http_client) as streams,
+    ):
+        read, write = streams[0], streams[1]
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            yield session
