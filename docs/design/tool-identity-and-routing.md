@@ -1,4 +1,4 @@
-# Tool identity and routing (V1)
+# Tool identity and routing
 
 Permanent reference for how the proxy discovers, disambiguates, and routes
 tools across upstream servers. Promoted from the ADRs that settled this
@@ -33,15 +33,19 @@ which original tool it actually refers to.
     `Tool` object copied with only its `name` field replaced by the
     external disambiguated name — every other field (description, input
     schema) is preserved exactly as the upstream server defined it.
-  - `resolve(external_name)` maps back to the `(server_id, bare_name)` pair
-    used to dispatch the call upstream.
-- **Dispatch:** `src/mcp_security_proxy/app/wiring.py`'s `on_call_tool`
-  resolves the external name, looks up the matching upstream `ClientSession`
-  by `server_id`, and calls the *bare* name on it. An external name that
-  doesn't resolve raises a protocol-level `MCPError(INVALID_PARAMS)`
+  - `find(external_name)` maps back to the `RoutedTool` used to dispatch the
+    call upstream, or `None`. `RoutedTool.tool_id` is the server-scoped
+    `ToolId(server_id, bare_name)` that policy matches against.
+- **Dispatch:** `src/mcp_security_proxy/core/proxy/orchestrator.py` finds
+  the external name, asks Guard for a decision, and only if it is `allow`
+  calls the *bare* name on the matching upstream `ClientSession`. An
+  external name that doesn't resolve, or a tool the principal may not
+  discover, raises the same protocol-level `MCPError(INVALID_PARAMS)`
   (`core/proxy/codec/jsonrpc.py`) before any upstream server is touched:
   `tools/call` is itself a valid method, so per the MCP spec only the tool
-  name is invalid, not the method.
+  name is invalid, not the method. See
+  [`request-lifecycle-and-control.md`](request-lifecycle-and-control.md) for
+  the full V2 lifecycle.
 
 ## Why the low-level `Server`, not `MCPServer`'s mount/composition feature
 
@@ -70,10 +74,12 @@ SDK itself.
   category, much later (V4) — not V1.
 - **Transport-agnostic by construction, not by accident.** Both Config A
   (stdio) and Config B (Streamable HTTP) reuse this exact routing/identity/
-  correlation code unchanged; only the transport adapters differ. This was
+  correlation code unchanged; only the transport adapters differ (and, since
+  V2, the identity mechanism paired with each agent-facing transport). This was
   verified, not assumed — MR5 shipped with zero diff in `routing/`, `codec/`,
   or `correlation.py`.
-- **Outcome-unknown reporting is not wired up.** `CorrelationTracker.
-  mark_server_unknown` exists but nothing calls it yet; a dropped connection
-  with calls in flight currently surfaces those calls as `FAILED`, not
-  `UNKNOWN`. Wiring this up is deferred past V1 — see 0007.
+- **Proactive outcome-unknown marking is not wired up.** Since V2, each
+  interrupted call (closed connection, timeout, cancellation) records its
+  own `unknown` outcome (see 0013). `CorrelationTracker.mark_server_unknown`,
+  which would mark *other* in-flight calls on a dropped server, still has no
+  caller.

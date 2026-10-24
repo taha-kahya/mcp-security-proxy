@@ -19,3 +19,7 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0007](0007-tool-identity-correlation-and-stdio-failure-semantics.md) | Tool identity disambiguation, correlation scope, and stdio connection-failure semantics | Accepted |
 | [0008](0008-streamable-http-scope-and-port-allocation.md) | Streamable HTTP session/resumability scope and multi-process port allocation | Accepted |
 | [0009](0009-subprocess-stdout-must-never-be-inherited.md) | Spawned upstream subprocess stdout/stderr must never be inherited | Accepted |
+| [0010](0010-policy-model-and-default-deny.md) | V2 policy model: per-principal tool allowlist, default deny | Accepted |
+| [0011](0011-identity-per-transport-and-no-task-boundary.md) | Identity per transport, and no task boundary in V2 | Accepted |
+| [0012](0012-decision-semantics-and-denial-responses.md) | Decision semantics and what the agent sees on denial | Accepted |
+| [0013](0013-audit-records-masking-and-fail-closed.md) | Audit records: what is logged, masking, and failing closed | Accepted |
