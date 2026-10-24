@@ -1,0 +1,15 @@
+# Reference policy for the mock servers (see docs/decisions/0010).
+# Anything not listed is hidden from discovery and rejected on call.
+schema_version: 1
+principals:
+  local-agent:
+    - tool: server_a/*
+      effect: allow
+    - tool: server_b/read_record
+      effect: allow
+    - tool: server_b/write_record
+      effect: allow
+    # Visible, but blocked until Approval exists (V5).
+    - tool: server_b/send_message
+      effect: require_approval
+    # server_b/slow_write is not listed, so it is hidden.

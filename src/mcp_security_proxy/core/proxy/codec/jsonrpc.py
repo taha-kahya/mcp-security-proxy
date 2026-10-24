@@ -27,6 +27,13 @@ def unauthenticated_error() -> MCPError:
     return MCPError(code=types.INVALID_REQUEST, message="Unauthenticated request")
 
 
+def audit_unavailable_error() -> MCPError:
+    return MCPError(
+        code=types.INTERNAL_ERROR,
+        message="Audit log unavailable; the request was not processed",
+    )
+
+
 def blocked_call_result(reason: str, decision_id: str) -> types.CallToolResult:
     """A tool-level error for a call the agent may see but that was not dispatched."""
     message = f"Call blocked: {reason} (decision {decision_id})."
