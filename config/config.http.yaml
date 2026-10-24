@@ -1,0 +1,21 @@
+# Config B: Agent <-> Proxy <-> ServerA/ServerB, entirely over Streamable HTTP.
+# Reference config for manual runs. Tests allocate ephemeral ports dynamically
+# rather than loading this file directly (see docs/decisions/0006).
+agent_transport: streamable-http
+agent_host: 127.0.0.1
+agent_port: 9000
+servers:
+  - id: server_a
+    transport: streamable-http
+    command: python
+    args: ["-m", "fixtures.mock_servers.server_a", "--transport", "streamable-http", "--port", "8001", "--audit-log", "server_a_audit.jsonl"]
+    host: 127.0.0.1
+    port: 8001
+    url: "http://127.0.0.1:8001/mcp"
+  - id: server_b
+    transport: streamable-http
+    command: python
+    args: ["-m", "fixtures.mock_servers.server_b", "--transport", "streamable-http", "--port", "8002", "--audit-log", "server_b_audit.jsonl"]
+    host: 127.0.0.1
+    port: 8002
+    url: "http://127.0.0.1:8002/mcp"
