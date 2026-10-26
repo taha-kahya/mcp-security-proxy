@@ -2,12 +2,13 @@
 # Reference config for manual runs. Tests allocate ephemeral ports dynamically
 # rather than loading this file directly (see docs/decisions/0006).
 agent_transport: streamable-http
+# Plain HTTP: keep on loopback or behind TLS (docs/decisions/0014).
 agent_host: 127.0.0.1
 agent_port: 9000
 identity:
   # Only SHA-256 digests of tokens are stored. This one is the digest of the
-  # development token "dev-token-change-me"; replace it for any real use:
-  #   printf %s "$TOKEN" | shasum -a 256
+  # development token "dev-token-change-me"; replace it with a random
+  # 256-bit token for any real use (see the README and docs/decisions/0014).
   bearer_tokens:
     - principal: local-agent
       token_sha256: f01d2474fd375b4c5eb46064b550034167661b86322f1e1d3cb7645512a06607

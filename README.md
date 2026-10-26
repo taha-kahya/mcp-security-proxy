@@ -70,12 +70,18 @@ The proxy spawns both mock servers (also over Streamable HTTP) and listens
 itself on `http://127.0.0.1:9000/mcp` (per `config/config.http.yaml`).
 Connect with any Streamable HTTP MCP client at that URL, sending
 `Authorization: Bearer dev-token-change-me` (the reference config's
-development token). Requests without a valid token get HTTP 401. To use your
-own token, put its digest in `identity.bearer_tokens`:
+development token). Requests without a valid token get HTTP 401. For any real
+use, replace it with a random token of at least 256 bits and put its digest in
+`identity.bearer_tokens`. This prints a new token, then its digest:
 
 ```sh
-printf %s "$TOKEN" | shasum -a 256
+python3 -c 'import hashlib, secrets; t = secrets.token_urlsafe(32); print(t); print(hashlib.sha256(t.encode()).hexdigest())'
 ```
+
+The listener speaks plain HTTP, so keep `agent_host` on loopback
+(`127.0.0.1`) or put a TLS-terminating reverse proxy in front; the proxy logs
+a warning at startup otherwise. See
+[`docs/decisions/0014`](docs/decisions/0014-http-listener-exposure-and-token-strength.md).
 
 In both configs, tools are exposed to the client under disambiguated names
 (`server_a__read_record`, `server_b__send_message`, etc.) — see
