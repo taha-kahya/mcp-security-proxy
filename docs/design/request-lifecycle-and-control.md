@@ -121,6 +121,20 @@ or a policy rule that matches no discovered tool.
 - **Static configuration.** Changing policy or tokens requires a restart.
 - **Tools only.** Resources, prompts, and other methods are not proxied (as
   in V1), so there is nothing to bypass control through them.
+- **Upstream initialization is discarded.** Each upstream server's
+  `InitializeResult` (server info, capabilities, and instructions) is
+  neither forwarded to the agent nor recorded; the proxy reports only its
+  own server info and sends no instructions.
+- **Tool definitions are read once.** Discovery happens at startup, reads
+  only the first page of `tools/list` (`nextCursor` is ignored), and
+  ignores `notifications/tools/list_changed`, so the agent keeps the
+  startup definitions even if a server changes its tools.
+- **Tool definitions are forwarded unchanged and unversioned.** Apart from
+  the disambiguated name, every upstream field (including annotations,
+  `_meta`, unknown fields, and non-standard schema keywords) reaches the
+  agent as sent. Tools are identified by `server_id/name` only, with no
+  definition version, so a policy rule approves whatever definition the
+  server sends and audit records cannot show which definition was exposed.
 - **`require_approval` always blocks** until the Approval module (V5).
 - **Proactive outcome-unknown marking** of *other* in-flight calls when a
   connection drops (`CorrelationTracker.mark_server_unknown`) is still not
