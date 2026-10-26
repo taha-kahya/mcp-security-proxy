@@ -32,7 +32,7 @@ There is no attack detection yet; that starts with V3/V4.
 Requires [`uv`](https://docs.astral.sh/uv/).
 
 ```sh
-uv sync --all-extras --dev
+uv sync --locked --all-extras --dev
 ```
 
 ## Running the checks

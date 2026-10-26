@@ -24,3 +24,4 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0012](0012-decision-semantics-and-denial-responses.md) | Decision semantics and what the agent sees on denial | Accepted |
 | [0013](0013-audit-records-masking-and-fail-closed.md) | Audit records: what is logged, masking, and failing closed | Accepted |
 | [0014](0014-http-listener-exposure-and-token-strength.md) | HTTP listener exposure and bearer-token strength | Accepted |
+| [0015](0015-dependency-provenance-mcp-and-httpx2.md) | Dependency provenance: mcp, mcp-types, and httpx2 | Accepted |
