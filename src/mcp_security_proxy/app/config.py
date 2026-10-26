@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 Transport = Literal["stdio", "streamable-http"]
+
+
+class ConfigError(ValueError):
+    """The config file is missing, malformed, or inconsistent."""
 
 
 class UpstreamServerConfig(BaseModel):
@@ -76,5 +80,11 @@ class ProxyConfig(BaseModel):
 
 
 def load_config(path: Path) -> ProxyConfig:
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return ProxyConfig.model_validate(data)
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise ConfigError(f"cannot read config file {path}: {exc}") from exc
+    try:
+        return ProxyConfig.model_validate(data)
+    except ValidationError as exc:
+        raise ConfigError(f"invalid config {path}: {exc}") from exc
