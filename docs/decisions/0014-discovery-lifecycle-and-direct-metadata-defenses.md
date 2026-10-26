@@ -2,6 +2,10 @@
 
 Status: Proposed
 
+This ADR records decisions before they are implemented, because they shape
+V3 and V4. It covers work in several phases (see "Phase mapping"). Each part
+becomes Accepted when the phase that implements it is merged.
+
 ## Context
 
 Direct prompt injection, as `docs/architecture.md` defines it, is malicious
@@ -88,6 +92,25 @@ and every JSON Schema keyword (`description`, `title`, `examples`, `default`,
 **Definition versions.** A tool's version is the hash of its canonical
 definition after normalization and field stripping. Exposure decisions, call
 decisions, and audit records carry it.
+
+## Phase mapping
+
+| Part | Phase |
+| --- | --- |
+| One exposure decision, made by Guard, for both listing and calling | V2 follow-up |
+| Per-tool definition version and exposure outcome in discovery and decision records | V2 follow-up |
+| Complete listing (`nextCursor`); upstream `InitializeResult` kept and its handling stated | V2 follow-up |
+| Server record, versioned definitions, `Registry.server()` | V3 |
+| Normalization and unknown-field stripping | V3 |
+| Discovery-stage inspection with explicit statuses (`not_inspected`, `failed`) | V3 |
+| Re-discovery on `list_changed`; calls bound to the exposed version | V3 |
+| Staged scan and direct defenses | V4 |
+| Warning and `require_approval` on a high-confidence finding; instructions forwarded or withheld by inspection | V4 |
+| Approval of a flagged tool's calls | V5 |
+
+Until V4, no inspection exists, so server instructions are not forwarded:
+the "forward if clean" default needs an inspection to establish that they
+are clean.
 
 ## Alternatives considered
 
