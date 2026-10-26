@@ -52,7 +52,7 @@ All covered traffic must pass through Proxy. A server or agent that can bypass i
 | **Guard** | Combine policy, inspection results, and authorization context into one decision. | Policy | Scan content, call servers, or grant consent. |
 | **SDK** | Define stable contracts and scoped capability interfaces for defenses. | Contract types only | Import concrete core or storage implementations. |
 | **Scan** | Provide reusable content analysis. | Configured detector adapters | Decide whether an operation may execute. |
-| **Registry** | Manage versioned tool definitions and configured tool semantics. | State, tool adapters | Treat server claims as verified permissions. |
+| **Registry** | Manage versioned server records, versioned tool definitions, and configured tool semantics. | State, tool adapters | Treat server claims as verified permissions. |
 | **History** | Provide consistent task-scoped operation history and security signals. | State | Act as a free-form log or infer user intent. |
 | **Policy** | Provide validated, versioned permissions and enforcement rules. | Configuration provider | Accept policy changes from server content. |
 | **State** | Persist scoped records with atomic update guarantees. | Storage adapter | Contain attack-specific reasoning. |
@@ -224,12 +224,15 @@ Decision
 
 Policy maps findings and inspection statuses to enforcement. Hard blocks take precedence over approval requirements and allows. A defense reporting no finding cannot cancel another defense's finding.
 
+At discovery, Guard makes one exposure decision per tool version and per server record instead of a call decision. Listing and calling use the same exposure decision, so a tool's visibility and its callability cannot diverge. See [Discovery lifecycle](#discovery-lifecycle).
+
 ### Shared capability interfaces
 
 ```text
 Scan.instructions(content) -> ScanResult
 Scan.secrets(content) -> ScanResult
-Registry.current(tool_id) -> ToolDefinition
+Registry.server(server_id) -> ServerRecord
+Registry.current(tool_id) -> ToolDefinition   # includes its definition version
 Registry.approved(tool_id) -> ToolDefinition?
 Registry.action(tool_id, arguments) -> Action
 History.snapshot(task_id) -> HistorySnapshot
@@ -258,6 +261,22 @@ Direct and temporal defenses share Registry: direct checks what a definition say
 Do not require indirect injection detection to succeed before cross-tool enforcement can work. Sensitivity analysis is a shared Scan capability. Missing sensitivity evidence means unknown, not safe.
 
 Reuse scan computations within an inspection and, where safe, across inspections. Cache keys must include content identity, scanner version, relevant settings, and isolation scope. Version changes invalidate cached judgments. Avoid cross-user data exposure through caches.
+
+## Discovery lifecycle
+
+Discovery is everything the proxy does before the agent sees a server's metadata: initialization, tool listing, inspection, and the decision on what to expose. Direct defenses act here, because the metadata reaches the LLM as soon as the agent lists tools, before any call.
+
+1. Proxy initializes each upstream server and keeps the `InitializeResult` as an untrusted server record.
+2. Proxy lists each server's tools completely, following pagination to the end.
+3. Proxy normalizes each definition and fingerprints it; the fingerprint is the tool's definition version.
+4. Registry stores the server record and the versioned definitions.
+5. Runner runs discovery-stage defenses once every server is registered.
+6. Guard makes one exposure decision per tool version and per server record.
+7. Proxy publishes its own `InitializeResult` and `tools/list` from those decisions and records them.
+8. Proxy binds each call to the definition version the agent was shown.
+9. Proxy repeats steps 2-7 when an upstream server reports that its tools changed.
+
+The steps, outcomes, and defaults are specified in [`design/discovery-lifecycle.md`](design/discovery-lifecycle.md), and the decisions behind them in [ADR 0014](decisions/0014-discovery-lifecycle-and-direct-metadata-defenses.md).
 
 ## Request and response lifecycle
 
