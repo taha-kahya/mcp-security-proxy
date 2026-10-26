@@ -44,6 +44,10 @@ class PolicySnapshot:
     def version(self) -> str:
         return self._version
 
+    @property
+    def principal_ids(self) -> frozenset[str]:
+        return frozenset(self._rules_by_principal)
+
     def for_principal(self, principal: Principal) -> PrincipalPolicy:
         return PrincipalPolicy(
             principal_id=principal.id,

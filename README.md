@@ -100,7 +100,10 @@ Edit the policy file (or point `policy_path` at another one) and restart the
 proxy. Each principal lists rules with a `tool` pattern (`server_id/tool_name`
 or `server_id/*`) and an `effect` (`allow` or `require_approval`). An exact rule
 overrides a wildcard for the same server. The proxy refuses to start if the
-file is invalid or a rule matches no discovered tool. See
+file is invalid or a rule matches no discovered tool. It logs a warning, but
+still starts, when a policy principal has no configured identity (a likely
+typo: those rules apply to nobody) or a configured principal has no policy
+entry (it is denied every tool). See
 [ADR 0010](docs/decisions/0010-policy-model-and-default-deny.md) for the
 full model.
 

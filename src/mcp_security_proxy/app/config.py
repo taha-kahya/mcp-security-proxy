@@ -78,6 +78,13 @@ class ProxyConfig(BaseModel):
             )
         return self
 
+    def agent_principal_ids(self) -> frozenset[str]:
+        """Principals the configured agent transport can authenticate as."""
+        if self.agent_transport == "stdio":
+            assert self.identity.stdio_principal is not None  # enforced above
+            return frozenset({self.identity.stdio_principal})
+        return frozenset(entry.principal for entry in self.identity.bearer_tokens)
+
 
 def load_config(path: Path) -> ProxyConfig:
     try:

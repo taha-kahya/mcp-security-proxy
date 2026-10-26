@@ -10,6 +10,7 @@ before any subprocess is spawned.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
@@ -29,6 +30,8 @@ from mcp_security_proxy.core.proxy.transport.streamable_http_client import (
 )
 from mcp_security_proxy.services.log import JsonlAuditSink
 from mcp_security_proxy.services.policy import PolicyError, PolicySnapshot, load_policy
+
+logger = logging.getLogger(__name__)
 
 
 class ProxyApp:
@@ -64,11 +67,29 @@ def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingT
         raise PolicyError(f"policy rules match no discovered tool: {names}")
 
 
+def warn_about_principal_mismatches(
+    policy: PolicySnapshot, identity_principal_ids: frozenset[str]
+) -> None:
+    """Mismatches fail safe (default deny), so they are warned about, not fatal:
+    one policy file may legitimately serve configs with different identities."""
+    for principal_id in sorted(policy.principal_ids - identity_principal_ids):
+        logger.warning(
+            "policy principal %r matches no configured identity; its rules apply to nobody",
+            principal_id,
+        )
+    for principal_id in sorted(identity_principal_ids - policy.principal_ids):
+        logger.warning(
+            "principal %r has no policy entry; every tool will be denied to it",
+            principal_id,
+        )
+
+
 @asynccontextmanager
 async def build_app(config: ProxyConfig) -> AsyncIterator[ProxyApp]:
     policy = load_policy(config.policy_path)
     audit = JsonlAuditSink.create(config.audit_log_path)
     agent_facing = build_agent_facing(config)
+    warn_about_principal_mismatches(policy, config.agent_principal_ids())
 
     async with AsyncExitStack() as stack:
         sessions = {
