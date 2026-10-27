@@ -224,7 +224,23 @@ Decision
 
 Policy maps findings and inspection statuses to enforcement. Hard blocks take precedence over approval requirements and allows. A defense reporting no finding cannot cancel another defense's finding.
 
-At discovery, Guard makes one exposure decision per tool version and per server record instead of a call decision. Listing and calling use the same exposure decision, so a tool's visibility and its callability cannot diverge. See [Discovery lifecycle](#discovery-lifecycle).
+At discovery, Guard makes exposure decisions instead of call decisions:
+
+```text
+Guard.expose(subject, context, results) -> ExposureDecision
+
+ExposureDecision
+  subject                # item version (tool, prompt, resource) | server record
+  outcome                # items: expose | expose_redacted | hide
+                         # server instructions: forward | withhold
+  call_outcome?          # exposed tools: allow | require_approval
+  redacted_fields[]      # field paths replaced by a fixed proxy string
+  rule_refs[]
+  reason
+  policy_version
+```
+
+One exposure decision is made per (principal, item version) and per (principal, server record). Listing and calling use the same decision, so an item's visibility and its callability cannot diverge. Policy maps findings to exposure outcomes as it does for calls. See [Discovery lifecycle](#discovery-lifecycle).
 
 ### Shared capability interfaces
 
@@ -264,19 +280,19 @@ Reuse scan computations within an inspection and, where safe, across inspections
 
 ## Discovery lifecycle
 
-Discovery is everything the proxy does before the agent sees a server's metadata: initialization, tool listing, inspection, and the decision on what to expose. Direct defenses act here, because the metadata reaches the LLM as soon as the agent lists tools, before any call.
+Discovery is everything the proxy does before the agent sees a server's metadata: initialization, listing tools, prompts and resources, inspection, and the decision on what to expose. The lifecycle is shared by every defense category. Direct defenses act here, because the metadata reaches the LLM as soon as the agent lists tools, before any call.
 
 1. Proxy initializes each upstream server and keeps the `InitializeResult` as an untrusted server record.
-2. Proxy lists each server's tools completely, following pagination to the end.
-3. Proxy normalizes each definition and fingerprints it; the fingerprint is the tool's definition version.
-4. Registry stores the server record and the versioned definitions.
+2. Proxy lists each server's items completely, following pagination to the end.
+3. Proxy fingerprints each item's upstream form; the fingerprint, named with its algorithm, is the item's definition version.
+4. Registry stores the server record and the versioned items.
 5. Runner runs discovery-stage defenses once every server is registered.
-6. Guard makes one exposure decision per tool version and per server record.
-7. Proxy publishes its own `InitializeResult` and `tools/list` from those decisions and records them.
-8. Proxy binds each call to the definition version the agent was shown.
-9. Proxy repeats steps 2-7 when an upstream server reports that its tools changed.
+6. Guard makes one exposure decision per (principal, item version) and per (principal, server record).
+7. Proxy publishes its own `InitializeResult` and lists from those decisions and records them.
+8. Proxy dispatches a call only if the tool's version is the one the agent was shown, and otherwise rejects it.
+9. Proxy repeats steps 2-7 when an upstream server reports that its items changed.
 
-The steps, outcomes, and defaults are specified in [`design/discovery-lifecycle.md`](design/discovery-lifecycle.md), and the decisions behind them in [ADR 0014](decisions/0014-discovery-lifecycle-and-direct-metadata-defenses.md).
+The lifecycle is specified in [`design/discovery-lifecycle.md`](design/discovery-lifecycle.md). The defaults for direct defenses are in [`design/direct-metadata-defenses.md`](design/direct-metadata-defenses.md), and the decisions behind them in [ADR 0016](decisions/0016-direct-metadata-defense-defaults.md).
 
 ## Request and response lifecycle
 

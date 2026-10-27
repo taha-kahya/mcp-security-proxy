@@ -19,4 +19,4 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0007](0007-tool-identity-correlation-and-stdio-failure-semantics.md) | Tool identity disambiguation, correlation scope, and stdio connection-failure semantics | Accepted |
 | [0008](0008-streamable-http-scope-and-port-allocation.md) | Streamable HTTP session/resumability scope and multi-process port allocation | Accepted |
 | [0009](0009-subprocess-stdout-must-never-be-inherited.md) | Spawned upstream subprocess stdout/stderr must never be inherited | Accepted |
-| [0014](0014-discovery-lifecycle-and-direct-metadata-defenses.md) | Discovery lifecycle and defaults for direct metadata defenses (spans V2-V5) | Proposed |
+| [0016](0016-direct-metadata-defense-defaults.md) | Direct metadata defense defaults and the discovery lifecycle (spans V2-V5) | Proposed |
