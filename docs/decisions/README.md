@@ -25,3 +25,4 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0013](0013-audit-records-masking-and-fail-closed.md) | Audit records: what is logged, masking, and failing closed | Accepted |
 | [0014](0014-http-listener-exposure-and-token-strength.md) | HTTP listener exposure and bearer-token strength | Accepted |
 | [0015](0015-dependency-provenance-mcp-and-httpx2.md) | Dependency provenance: mcp, mcp-types, and httpx2 | Accepted |
+| [0016](0016-direct-metadata-defense-defaults.md) | Direct metadata defense defaults and the discovery lifecycle (spans V2-V5) | Proposed |
