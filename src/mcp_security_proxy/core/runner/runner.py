@@ -17,11 +17,14 @@ import anyio
 from mcp_security_proxy.core.runner.context import ContextFactory, InspectionScope
 from mcp_security_proxy.core.runner.plan import ExecutionPlan, PlannedDefense
 from mcp_security_proxy.sdk import (
+    Capability,
     Context,
     Event,
+    Finding,
     InspectionStatus,
     Manifest,
     Result,
+    Severity,
     Signal,
     Stage,
 )
@@ -100,4 +103,13 @@ def validated(manifest: Manifest, result: object) -> Result:
             return Result.failed(f"signal claims producer {signal.producer!r}")
         if signal.type not in manifest.produced_signals:
             return Result.failed(f"signal type {signal.type!r} is not declared in the manifest")
+    for finding in result.findings:
+        if not isinstance(finding, Finding):
+            return Result.failed(f"returned a {type(finding).__name__}, not Finding")
+        if not isinstance(finding.severity, Severity):
+            return Result.failed(
+                f"finding {finding.rule_id!r} has severity {finding.severity!r}, not a Severity"
+            )
+    if result.state_changes and Capability.PRIVATE_STATE not in manifest.required_capabilities:
+        return Result.failed("proposed state changes without declaring private_state")
     return result

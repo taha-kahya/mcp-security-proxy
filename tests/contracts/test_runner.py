@@ -22,11 +22,13 @@ from mcp_security_proxy.sdk import (
     Context,
     Defense,
     Event,
+    Finding,
     HistorySnapshot,
     InspectionStatus,
     Result,
     Signal,
     Stage,
+    StateChange,
     VersionedValue,
 )
 from mcp_security_proxy.sdk.testing import (
@@ -223,6 +225,36 @@ async def test_signals_with_a_false_producer_or_undeclared_type_fail() -> None:
     )
     assert results["spoofs"].status is InspectionStatus.FAILED
     assert results["undeclared"].status is InspectionStatus.FAILED
+
+
+async def test_a_finding_of_the_wrong_type_fails_the_inspection() -> None:
+    async def wrong_type(event: Event, context: Context) -> Result:
+        return Result(InspectionStatus.COMPLETED, findings=("not a Finding",))  # type: ignore[arg-type]
+
+    results = await _inspect(_runner(ScriptedDefense("wrong_type", wrong_type)))
+    assert results["wrong_type"].status is InspectionStatus.FAILED
+    assert results["wrong_type"].detail == "returned a str, not Finding"
+
+
+async def test_a_finding_with_an_invalid_severity_fails_the_inspection() -> None:
+    async def bad_severity(event: Event, context: Context) -> Result:
+        finding = Finding("bad.rule", "test", "urgent", "test finding")  # type: ignore[arg-type]
+        return Result.completed([finding])
+
+    results = await _inspect(_runner(ScriptedDefense("bad_severity", bad_severity)))
+    assert results["bad_severity"].status is InspectionStatus.FAILED
+    assert results["bad_severity"].detail == (
+        "finding 'bad.rule' has severity 'urgent', not a Severity"
+    )
+
+
+async def test_state_changes_without_declaring_private_state_fail_the_inspection() -> None:
+    async def proposes(event: Event, context: Context) -> Result:
+        return Result.completed(state_changes=[StateChange("k", 0, "v")])
+
+    results = await _inspect(_runner(ScriptedDefense("proposes", proposes)))
+    assert results["proposes"].status is InspectionStatus.FAILED
+    assert results["proposes"].detail == "proposed state changes without declaring private_state"
 
 
 async def test_context_carries_trusted_scope_and_own_private_state() -> None:
