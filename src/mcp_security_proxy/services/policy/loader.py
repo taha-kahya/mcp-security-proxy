@@ -1,13 +1,16 @@
 """Parse and validate a policy file into a `PolicySnapshot`.
 
 Policy comes only from operator-controlled configuration, never from server
-content. Its version is a hash of the parsed document, so formatting-only
-edits keep the version while any change in meaning produces a new one.
+content. Its version is a hash of the parsed document together with every
+per-defense enforcement override, so the version on a decision identifies
+all the rules that produced it. Formatting-only edits keep the version,
+while any change in meaning produces a new one.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +18,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from mcp_security_proxy.sdk import canonical_digest
+from mcp_security_proxy.services.policy.enforcement import EnforcementEntry, EnforcementPolicy
 from mcp_security_proxy.services.policy.rules import Effect, ToolPattern, ToolRule
 from mcp_security_proxy.services.policy.snapshot import PolicySnapshot
 
@@ -41,6 +45,7 @@ class _PolicyDocument(BaseModel):
 
     schema_version: Literal[1]
     principals: dict[str, list[_RuleEntry]]
+    enforcement: EnforcementEntry | None = None
 
     @model_validator(mode="after")
     def _no_duplicate_patterns_per_principal(self) -> _PolicyDocument:
@@ -49,9 +54,6 @@ class _PolicyDocument(BaseModel):
             if duplicates:
                 raise ValueError(f"principal {principal_id!r} lists {duplicates} more than once")
         return self
-
-    def version(self) -> str:
-        return canonical_digest(self.model_dump(mode="json"))
 
     def rules_by_principal(self) -> dict[str, tuple[ToolRule, ...]]:
         return {
@@ -63,17 +65,34 @@ class _PolicyDocument(BaseModel):
         }
 
 
-def parse_policy(data: object) -> PolicySnapshot:
+def parse_policy(
+    data: object, enforcement_overrides: Mapping[str, object] | None = None
+) -> PolicySnapshot:
+    """`enforcement_overrides` maps a defense id to its config's `enforcement`."""
     try:
         document = _PolicyDocument.model_validate(data)
+        overrides = {
+            defense_id: EnforcementEntry.model_validate(entry)
+            for defense_id, entry in (enforcement_overrides or {}).items()
+        }
     except ValidationError as exc:
         raise PolicyError(f"invalid policy: {exc}") from exc
-    return PolicySnapshot(document.version(), document.rules_by_principal())
+
+    version = canonical_digest(
+        {
+            "policy": document.model_dump(mode="json"),
+            "defense_enforcement": {d: e.model_dump(mode="json") for d, e in overrides.items()},
+        }
+    )
+    enforcement = EnforcementPolicy.from_entries(document.enforcement, overrides)
+    return PolicySnapshot(version, document.rules_by_principal(), enforcement)
 
 
-def load_policy(path: Path) -> PolicySnapshot:
+def load_policy(
+    path: Path, enforcement_overrides: Mapping[str, object] | None = None
+) -> PolicySnapshot:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise PolicyError(f"cannot read policy file {path}: {exc}") from exc
-    return parse_policy(data)
+    return parse_policy(data, enforcement_overrides)
