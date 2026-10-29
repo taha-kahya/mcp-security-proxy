@@ -1,7 +1,14 @@
 # Sample defense (see src/mcp_security_proxy/defenses/samples/call_budget).
 # Caps side-effecting operations per task; the task is the principal (0016).
+#
+# Disabled by default: the reference configs keep history in SQLite across
+# restarts (0016), and this quota never resets, so leaving it enabled would
+# permanently block local-agent after 50 calls with no documented recovery
+# other than deleting the state file. Set `enabled: true` to try it manually
+# (see README.md), and delete `proxy_state.sqlite3` first if you've already
+# made calls under the same state path.
 id: call_budget
-enabled: true
+enabled: false
 settings:
   max_operations: 50
   operations: [write, send, execute]

@@ -107,11 +107,18 @@ In both configs, tools are exposed to the client under disambiguated names
 [`docs/design/tool-identity-and-routing.md`](docs/design/tool-identity-and-routing.md)
 for why.
 
-Both reference configs enable the sample `call_budget` defense
-([`config/defenses/call_budget.yaml`](config/defenses/call_budget.yaml)),
-classify the mock tools in [`config/tools.yaml`](config/tools.yaml), and
-keep task history in `proxy_state.sqlite3`, so the budget survives restarts.
-Delete that file to reset it.
+Both reference configs classify the mock tools in
+[`config/tools.yaml`](config/tools.yaml) and keep task history in
+`proxy_state.sqlite3`, which survives restarts. The sample `call_budget`
+defense
+([`config/defenses/call_budget.yaml`](config/defenses/call_budget.yaml)) is
+disabled there by default: its quota never resets on its own, so enabling it
+against that same persistent state would permanently block the principal
+after 50 calls. To try it manually, set `enabled: true` in that file, first
+deleting `proxy_state.sqlite3` if you've already made calls, since the quota
+counts from whatever history already exists. See
+[`src/mcp_security_proxy/defenses/samples/call_budget`](src/mcp_security_proxy/defenses/samples/call_budget)
+for the defense itself, which the test and e2e suites exercise directly.
 
 Both reference configs use the policy in
 [`config/policies/default.yaml`](config/policies/default.yaml): all of
