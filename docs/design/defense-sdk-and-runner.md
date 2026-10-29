@@ -131,7 +131,9 @@ every report's enforcement.
 
 **Approval** — `request(ActionBinding) -> ApprovalHandle`;
 `validate_and_consume(handle, binding) -> ApprovalResult`. Declared only;
-`require_approval` blocks.
+`require_approval` blocks. When Approval is wired (V5), it must stay fail
+closed: an unconfigured, unreachable, or erroring approver blocks, so
+`require_approval` never degrades to `allow`.
 
 ## Configuration
 
@@ -170,7 +172,8 @@ enforcement: {on_failure: block}       # optional override, same shape
 ## Limitations (deliberate, V3 scope)
 
 - **Task = principal** (0016); no per-session or per-conversation history.
-- **One process per state file**; task locks are in-process.
+- **One process per state file**, because task locks are in-process. This is
+  enforced: a second process using the same SQLite file refuses to start.
 - **Unbounded per-task history**; no compaction.
 - **Not inspected:** upstream protocol errors, notifications, resources,
   and prompts (resources and prompts are still not proxied at all).

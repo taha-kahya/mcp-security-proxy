@@ -25,8 +25,9 @@ to run State contract tests against both in-memory and persistent adapters.
   - `InMemoryStateStore`: tests and restart-free use. This is the default.
   - `SqliteStateStore`: standard-library `sqlite3`, so there is no new
     dependency. `BEGIN IMMEDIATE` transactions, `PRAGMA user_version`
-    schema versioning, and it refuses unknown schemas. The reference configs
-    use it.
+    schema versioning, and it refuses unknown schemas. It holds an exclusive
+    lock on the file while open, so a second process using the same file
+    fails to start (`StateInUseError`). The reference configs use it.
 - **Serialization:** the proxy holds a per-task `asyncio.Lock` while it
   inspects, decides, records, and reserves a call, then releases it before
   dispatch. Reservation means appending a `pending` operation to History. A
@@ -47,9 +48,13 @@ to run State contract tests against both in-memory and persistent adapters.
 
 ## Consequences
 
-- Locks are per process. Running several proxy processes against one SQLite
-  file is not supported: the database serializes writes, but the
-  decide-then-reserve atomicity relies on the in-process lock.
+- Locks are per process, and decide-then-reserve atomicity relies on them.
+  Two processes sharing one SQLite file could each let a call through a
+  history rule, so this is enforced rather than only documented: the
+  exclusive file lock makes the second process refuse to start. It is
+  released when the process exits, so a crash never leaves the file locked.
+  Running several proxies needs a shared lock or a reservation that rechecks
+  the decision in the database; that waits until scaling out is in scope.
 - Each task's history is one record that grows without bound. Compaction or
   windowing waits for a defense that needs long histories.
 - Task-scoped claims in docs and audit records mean "per principal" until a

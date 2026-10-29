@@ -4,7 +4,7 @@ Deciding a call and reserving it in History happen under the task's lock, so
 concurrent calls each decide against a history that already includes every
 earlier reservation. The lock is released before the call is dispatched, so
 a slow upstream does not stall the task's other calls. Locks are
-per-process: one proxy process per state database.
+per-process, which is safe because the SQLite state refuses a second process.
 """
 
 from __future__ import annotations

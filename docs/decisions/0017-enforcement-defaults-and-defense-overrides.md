@@ -49,5 +49,6 @@ file for everything.
 ## Consequences
 
 `require_approval` verdicts from findings block, like policy ones, until
-Approval exists (V5). An override for a disabled defense is ignored and does
+Approval exists (V5). Only an explicit `allow` lets a call through, and V5
+must keep that: an unconfigured, unreachable, or erroring approver blocks. An override for a disabled defense is ignored and does
 not affect the version.

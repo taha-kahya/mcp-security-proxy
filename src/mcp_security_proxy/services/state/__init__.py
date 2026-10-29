@@ -6,6 +6,7 @@ from mcp_security_proxy.services.state.sqlite import SqliteStateStore
 from mcp_security_proxy.services.state.store import (
     Change,
     Scope,
+    StateInUseError,
     StateStore,
     StateUnavailableError,
     TaskRef,
@@ -18,6 +19,7 @@ __all__ = [
     "InMemoryStateStore",
     "Scope",
     "SqliteStateStore",
+    "StateInUseError",
     "StateStore",
     "StateUnavailableError",
     "TaskRef",

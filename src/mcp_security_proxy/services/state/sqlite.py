@@ -2,8 +2,9 @@
 
 Uses the standard library's `sqlite3`. Every operation runs in a worker
 thread under one lock, and `apply` runs inside a `BEGIN IMMEDIATE`
-transaction, so a multi-record update is atomic. One proxy process per
-database file: other processes are not coordinated with.
+transaction, so a multi-record update is atomic. The connection holds an
+exclusive lock on the file until it closes, so a second proxy process
+pointed at the same database refuses to start instead of racing this one.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from mcp_security_proxy.sdk import ABSENT, VersionedValue, thaw
 from mcp_security_proxy.services.state.store import (
     Change,
     Scope,
+    StateInUseError,
     StateStore,
     StateUnavailableError,
     UpdateResult,
@@ -46,6 +48,31 @@ def _scope_params(scope: Scope) -> tuple[str, str, str]:
     return (scope.owner, scope.principal_id, scope.task_id)
 
 
+def _claim_and_initialize(connection: sqlite3.Connection, path: Path) -> None:
+    """In exclusive locking mode, the lock `BEGIN EXCLUSIVE` takes is kept
+    after the transaction ends, until the connection closes (or the process
+    exits, so a crashed proxy never leaves the file locked)."""
+    try:
+        connection.execute("PRAGMA locking_mode = EXCLUSIVE")
+        connection.execute("BEGIN EXCLUSIVE")
+    except sqlite3.OperationalError as exc:
+        if exc.sqlite_errorcode == sqlite3.SQLITE_BUSY:
+            raise StateInUseError(
+                f"state database {path} is in use by another process; "
+                "run one proxy per state database"
+            ) from exc
+        raise StateUnavailableError(f"cannot open state database {path}: {exc}") from exc
+    try:
+        found = connection.execute("PRAGMA user_version").fetchone()[0]
+        if found not in (0, _SCHEMA_VERSION):
+            raise StateUnavailableError(f"state database {path} has unknown schema {found}")
+        connection.execute(_SCHEMA)
+        connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+        connection.execute("COMMIT")
+    except sqlite3.Error as exc:
+        raise StateUnavailableError(f"cannot open state database {path}: {exc}") from exc
+
+
 class SqliteStateStore(StateStore):
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -53,18 +80,21 @@ class SqliteStateStore(StateStore):
 
     @classmethod
     def open(cls, path: Path) -> SqliteStateStore:
-        """Create or open the database, refusing one with an unknown schema."""
+        """Create or open the database and take sole ownership of it, refusing
+        one with an unknown schema or one another process holds."""
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            connection = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
-            found = connection.execute("PRAGMA user_version").fetchone()[0]
-            if found not in (0, _SCHEMA_VERSION):
-                connection.close()
-                raise StateUnavailableError(f"state database {path} has unknown schema {found}")
-            connection.execute(_SCHEMA)
-            connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            # timeout=0: a held database fails at once rather than after a wait.
+            connection = sqlite3.connect(
+                path, check_same_thread=False, isolation_level=None, timeout=0
+            )
         except sqlite3.Error as exc:
             raise StateUnavailableError(f"cannot open state database {path}: {exc}") from exc
+        try:
+            _claim_and_initialize(connection, path)
+        except BaseException:
+            connection.close()
+            raise
         return cls(connection)
 
     async def read(self, scope: Scope, key: str) -> VersionedValue:

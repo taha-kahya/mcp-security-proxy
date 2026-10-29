@@ -23,6 +23,12 @@ class StateUnavailableError(Exception):
     """The storage backend failed; callers must fail closed."""
 
 
+class StateInUseError(StateUnavailableError):
+    """Another process holds the state. Two writers would make their own
+    per-task locks, so each could decide on a snapshot the other is about
+    to change (for example, both letting a call through a budget)."""
+
+
 @dataclass(frozen=True)
 class Scope:
     """`owner` is `history`, `defense:<id>`, or another service's name."""

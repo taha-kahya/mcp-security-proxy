@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import subprocess
+import sys
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from mcp_security_proxy.services.state import (
     InMemoryStateStore,
     Scope,
     SqliteStateStore,
+    StateInUseError,
     StateStore,
     StateUnavailableError,
 )
@@ -126,3 +129,40 @@ def test_sqlite_refuses_an_unknown_schema(tmp_path: Path) -> None:
 
     with pytest.raises(StateUnavailableError):
         SqliteStateStore.open(path)
+
+
+async def test_sqlite_refuses_a_second_owner_until_the_first_closes(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite3"
+    first = SqliteStateStore.open(path)
+
+    with pytest.raises(StateInUseError):
+        SqliteStateStore.open(path)
+
+    await first.close()
+    await SqliteStateStore.open(path).close()
+
+
+_OPEN_IN_ANOTHER_PROCESS = """
+import sys
+from pathlib import Path
+from mcp_security_proxy.services.state import SqliteStateStore, StateInUseError
+try:
+    SqliteStateStore.open(Path(sys.argv[1]))
+except StateInUseError:
+    sys.exit(3)
+"""
+
+
+async def test_sqlite_refuses_another_process_while_held(tmp_path: Path) -> None:
+    """Task locks are in-process, so a second writer process could let calls
+    through a history rule; it must not be able to open the state at all."""
+    path = tmp_path / "state.sqlite3"
+    held = SqliteStateStore.open(path)
+    await held.compare_and_set(ALICE_TASK, "k", 0, 1)
+
+    other = subprocess.run(
+        [sys.executable, "-c", _OPEN_IN_ANOTHER_PROCESS, str(path)], check=False, timeout=30
+    )
+    await held.close()
+
+    assert other.returncode == 3
