@@ -6,11 +6,16 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "mcp>=2.3.0,<3.0.0",
+    "packaging>=24.0,<27.0",
     "pydantic>=2.0.0,<3.0.0",
     "pydantic-settings>=2.0.0,<3.0.0",
     "pyyaml>=6.0.0,<7.0.0",
     "uvicorn>=0.30.0,<1.0.0",
 ]
+
+# Defenses register here; config/defenses/ decides which are enabled.
+[project.entry-points."mcp_security_proxy.defenses"]
+call_budget = "mcp_security_proxy.defenses.samples.call_budget:create"
 
 [dependency-groups]
 dev = [
@@ -30,7 +35,7 @@ packages = ["src/mcp_security_proxy", "fixtures"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "src/mcp_security_proxy/defenses"]
 
 [tool.ruff]
 line-length = 100

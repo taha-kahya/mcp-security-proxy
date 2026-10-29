@@ -14,6 +14,13 @@ identity:
       token_sha256: f01d2474fd375b4c5eb46064b550034167661b86322f1e1d3cb7645512a06607
 policy_path: config/policies/default.yaml
 audit_log_path: proxy_audit.jsonl
+# Operator classification of tool semantics, and enabled defenses (V3).
+tools_path: config/tools.yaml
+defenses_path: config/defenses
+# Keeps task history across restarts; `memory` would reset it.
+state:
+  backend: sqlite
+  path: proxy_state.sqlite3
 servers:
   - id: server_a
     transport: streamable-http
