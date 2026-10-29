@@ -128,7 +128,7 @@ class SqliteStateStore(StateStore):
 
         return await self._run(query)
 
-    async def apply(self, changes: Sequence[Change]) -> UpdateResult:
+    async def _apply(self, changes: Sequence[Change]) -> UpdateResult:
         return await self._run(lambda: self._apply_in_transaction(changes))
 
     async def close(self) -> None:

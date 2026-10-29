@@ -12,6 +12,7 @@ Values must be JSON-serializable. Reads return frozen values.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -82,9 +83,23 @@ class StateStore(ABC):
     async def scopes(self, owner: str) -> list[Scope]:
         """Every scope `owner` has stored records under."""
 
-    @abstractmethod
     async def apply(self, changes: Sequence[Change]) -> UpdateResult:
-        """Apply every change, or none if any expected version is stale."""
+        """Apply every change, or none if any expected version is stale.
+
+        Rejects a batch with more than one change for the same (scope, key):
+        each change's expected version is checked against the stored value
+        before any write, so two such changes would both appear to apply,
+        and the later one would silently overwrite the earlier one's result.
+        """
+        targets = Counter((c.scope, c.key) for c in changes)
+        duplicates = sorted(str(key) for key, count in targets.items() if count > 1)
+        if duplicates:
+            raise ValueError(f"apply() received more than one change for: {duplicates}")
+        return await self._apply(changes)
+
+    @abstractmethod
+    async def _apply(self, changes: Sequence[Change]) -> UpdateResult:
+        """`changes` names no (scope, key) more than once; see `apply`."""
 
     async def compare_and_set(
         self, scope: Scope, key: str, expected_version: int, value: Any

@@ -78,6 +78,18 @@ async def test_apply_is_all_or_nothing(store: StateStore) -> None:
     assert (await store.read(ALICE_TASK, "taken")).value == "x"
 
 
+async def test_apply_rejects_duplicate_keys_in_one_batch(store: StateStore) -> None:
+    """Conflicts are checked against the stored version before any write, so
+    two changes to the same key would both appear to apply otherwise, and
+    the batch's compare-and-set guarantee would not hold for that key."""
+    with pytest.raises(ValueError, match="more than one change"):
+        await store.apply(
+            [Change(ALICE_TASK, "k", 0, "first"), Change(ALICE_TASK, "k", 0, "second")]
+        )
+
+    assert not (await store.read(ALICE_TASK, "k")).exists
+
+
 async def test_scopes_are_isolated(store: StateStore) -> None:
     await store.compare_and_set(ALICE_TASK, "k", 0, "alice")
     await store.compare_and_set(BOB_TASK, "k", 0, "bob")

@@ -25,7 +25,7 @@ class InMemoryStateStore(StateStore):
         owned = {s for s, _ in self._records if s.owner == owner}
         return sorted(owned, key=lambda s: (s.principal_id, s.task_id))
 
-    async def apply(self, changes: Sequence[Change]) -> UpdateResult:
+    async def _apply(self, changes: Sequence[Change]) -> UpdateResult:
         conflicts = tuple(
             change
             for change in changes
