@@ -174,7 +174,9 @@ enforcement: {on_failure: block}       # optional override, same shape
 - **Unbounded per-task history**; no compaction.
 - **Not inspected:** upstream protocol errors, notifications, resources,
   and prompts (resources and prompts are still not proxied at all).
-- **No scan capability or argument-aware tool adapters** yet (V4).
+- **No scan capability, argument-aware tool adapters, `Registry.approved`,
+  or server-identity view** yet. V4 adds them one MR at a time
+  ([0020](../decisions/0020-v4-capability-first-delivery.md)).
 - **Definitions are still read once at startup**, so temporal defenses have
   nothing to compare against until re-discovery exists.
 - **Deadlines** cannot interrupt a defense that blocks the event loop.
