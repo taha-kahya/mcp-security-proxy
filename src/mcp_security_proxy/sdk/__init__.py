@@ -20,6 +20,7 @@ from mcp_security_proxy.sdk.capabilities import (
 )
 from mcp_security_proxy.sdk.context import CapabilityNotGrantedError, Context, Grants
 from mcp_security_proxy.sdk.defense import DEFENSE_ENTRY_POINT_GROUP, Defense, DefenseFactory
+from mcp_security_proxy.sdk.digest import canonical_digest
 from mcp_security_proxy.sdk.events import (
     ContentBlock,
     ContentSource,
@@ -78,6 +79,7 @@ __all__ = [
     "ToolDefinition",
     "ToolId",
     "VersionedValue",
+    "canonical_digest",
     "freeze",
     "thaw",
 ]

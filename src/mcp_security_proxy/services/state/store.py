@@ -33,6 +33,17 @@ class Scope:
 
 
 @dataclass(frozen=True)
+class TaskRef:
+    """The isolation boundary operational state is kept under."""
+
+    principal_id: str
+    task_id: str
+
+    def scope(self, owner: str) -> Scope:
+        return Scope(owner, self.principal_id, self.task_id)
+
+
+@dataclass(frozen=True)
 class Change:
     """Write `value` to `key`, if its stored version is still `expected_version`
     (0 to create a key that must not exist yet)."""

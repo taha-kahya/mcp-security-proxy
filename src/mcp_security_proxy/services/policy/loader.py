@@ -7,8 +7,6 @@ edits keep the version while any change in meaning produces a new one.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections import Counter
 from pathlib import Path
 from typing import Literal
@@ -16,6 +14,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
+from mcp_security_proxy.sdk import canonical_digest
 from mcp_security_proxy.services.policy.rules import Effect, ToolPattern, ToolRule
 from mcp_security_proxy.services.policy.snapshot import PolicySnapshot
 
@@ -52,8 +51,7 @@ class _PolicyDocument(BaseModel):
         return self
 
     def version(self) -> str:
-        canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return canonical_digest(self.model_dump(mode="json"))
 
     def rules_by_principal(self) -> dict[str, tuple[ToolRule, ...]]:
         return {

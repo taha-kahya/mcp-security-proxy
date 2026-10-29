@@ -7,6 +7,7 @@ from mcp_security_proxy.services.state.store import (
     Scope,
     StateStore,
     StateUnavailableError,
+    TaskRef,
     UpdateResult,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "SqliteStateStore",
     "StateStore",
     "StateUnavailableError",
+    "TaskRef",
     "UpdateResult",
 ]
