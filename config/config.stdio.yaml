@@ -2,6 +2,12 @@
 # Reference config for manual runs. Tests build their own ProxyConfig with
 # tmp_path-scoped audit log paths rather than loading this file directly.
 agent_transport: stdio
+identity:
+  # stdio has no per-connection credentials: whoever launches the proxy is
+  # this principal (see docs/decisions/0011).
+  stdio_principal: local-agent
+policy_path: config/policies/default.yaml
+audit_log_path: proxy_audit.jsonl
 servers:
   - id: server_a
     command: python

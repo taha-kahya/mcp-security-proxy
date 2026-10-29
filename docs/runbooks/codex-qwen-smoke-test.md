@@ -1,4 +1,4 @@
-# Manual smoke test: Codex CLI + local Qwen-3.5 9B against the V1 proxy
+# Manual smoke test: Codex CLI + local Qwen-3.5 9B against the proxy
 
 Status: manual, exploratory verification only. **Not part of CI** — see
 [0004](../decisions/0004-scripted-harness-over-llm-agent.md) and
@@ -15,7 +15,7 @@ Qwen-3.5 9B (local, via Ollama)
    ↓ tool-use decisions
 Codex CLI (MCP host)
    ↓ MCP client protocol
-Proxy (V1, Config A: stdio)
+Proxy (Config A: stdio)
    ↓
 Mock server A / Mock server B
 ```
@@ -106,7 +106,10 @@ Note: Codex CLI's MCP client supports Streamable HTTP servers too (a plain
 well if you'd rather smoke-test that configuration — Config A is the default
 recommendation here only because it needs no separate port/process
 bookkeeping for this manual step, not because of any known limitation in
-Codex's HTTP support.
+Codex's HTTP support. Config B requires every request to carry
+`Authorization: Bearer <token>` (the reference config's development token is
+`dev-token-change-me`), so configure Codex's bearer-token option for that
+server if you use it.
 
 If you used `codex mcp add`, Codex manages spawning the proxy itself (don't
 also run it manually in that case — pick one).
@@ -126,22 +129,29 @@ In the Codex session:
    the key 'greeting' on server_a, then read it back."*
 2. Confirm the tool list Codex sees includes the disambiguated names —
    `server_a__write_record`, `server_a__read_record`,
-   `server_b__send_message`, etc. (eight tools total: two servers × four
-   tools each).
+   `server_b__send_message`, etc. With the reference policy
+   (`config/policies/default.yaml`) that is seven tools: all four on
+   `server_a`, and every `server_b` tool except the hidden `slow_write`.
 3. Confirm Codex successfully calls `server_a__write_record` and then
    `server_a__read_record`, and that the model reports back the correct
    value it just wrote.
 4. Optionally, check the mock server's audit log (path set in
    `config/config.stdio.yaml`) to independently confirm the call actually
-   reached `server_a` and not `server_b`.
+   reached `server_a` and not `server_b`, and the proxy's own
+   `proxy_audit.jsonl` to see the `decision` and `outcome` records.
+5. Ask Codex to send a message via `server_b`. The call to
+   `server_b__send_message` should come back as a tool error saying it
+   requires approval, and `server_b`'s audit log should stay empty.
 
 ## Done when
 
 - Codex CLI, driven by the locally-served Qwen-3.5 9B model, discovers the
   full disambiguated tool list from both mock servers through the proxy.
-- At least one read, one write, and one send call complete successfully
-  end-to-end with a real model making the tool-call decisions.
+- The visible tool list matches the reference policy.
+- At least one read, one write, and one send call (`server_a__send_message`)
+  complete successfully end-to-end with a real model making the tool-call
+  decisions, and `server_b__send_message` is blocked.
 
 If something fails, note whether the failure is in Codex/Ollama setup (not a
 proxy issue) versus the proxy itself misbehaving — only the latter is
-relevant to V1's correctness.
+relevant to the proxy's correctness.
