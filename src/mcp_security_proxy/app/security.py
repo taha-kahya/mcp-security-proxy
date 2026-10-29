@@ -74,7 +74,8 @@ def load_security(config: ProxyConfig, catalog: DefenseCatalog) -> SecuritySetup
 
 def open_state(config: StateConfig) -> StateStore:
     if config.backend == "sqlite":
-        assert config.path is not None  # enforced by config validation
+        if config.path is None:
+            raise RuntimeError("sqlite state backend configured without a path")
         return SqliteStateStore.open(config.path)
     return InMemoryStateStore()
 

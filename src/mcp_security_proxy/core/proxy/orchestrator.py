@@ -115,7 +115,8 @@ class ProxyOrchestrator:
         arguments: dict[str, Any],
     ) -> types.CallToolResult:
         routed = authorization.routed
-        assert routed is not None  # permits_dispatch guarantees it
+        if routed is None:
+            raise RuntimeError("_dispatch() requires an authorization that permits dispatch")
         self._correlation.begin(
             authorization.correlation_id, routed.server_id, routed.external_name
         )

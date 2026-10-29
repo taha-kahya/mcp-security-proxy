@@ -153,7 +153,8 @@ class ProxyControl:
         return authorization(decision, reports, action, hidden=False)
 
     async def reserve(self, authorization: CallAuthorization) -> OperationRecord:
-        assert authorization.routed is not None and authorization.action is not None
+        if authorization.routed is None or authorization.action is None:
+            raise RuntimeError("reserve() requires an authorization that permits dispatch")
         return await self._history.reserve(
             authorization.task,
             correlation_id=authorization.correlation_id,
@@ -170,7 +171,8 @@ class ProxyControl:
         self, authorization: CallAuthorization, result: types.CallToolResult
     ) -> DeliveryReview:
         routed, action = authorization.routed, authorization.action
-        assert routed is not None and action is not None
+        if routed is None or action is None:
+            raise RuntimeError("review_result() requires an authorization that permits dispatch")
         policy = self._policy.for_principal(authorization.principal)
         if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
             return DeliveryReview(self._guard.review(policy, ()), (), inspected=False)
