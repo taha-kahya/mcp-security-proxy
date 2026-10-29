@@ -60,6 +60,11 @@ class Runner:
     def applies_to(self, stage: Stage) -> bool:
         return bool(self._plan.for_stage(stage))
 
+    def defense_versions(self, stage: Stage) -> tuple[str, ...]:
+        """A fingerprint of the defenses planned for `stage`, for cache keys
+        that must change if the execution plan for that stage ever does."""
+        return tuple(f"{p.manifest.id}@{p.manifest.version}" for p in self._plan.for_stage(stage))
+
     async def inspect(self, event: Event, scope: InspectionScope) -> tuple[InspectionReport, ...]:
         reports: list[InspectionReport] = []
         signals: list[Signal] = []

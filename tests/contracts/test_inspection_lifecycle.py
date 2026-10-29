@@ -23,6 +23,7 @@ from mcp_security_proxy.sdk import (
     OperationStatus,
     Principal,
     Result,
+    Signal,
     Stage,
     StateChange,
 )
@@ -133,6 +134,27 @@ async def test_discovery_finding_hides_the_tool_from_listing_and_calling() -> No
     assert upstream.calls == []
     [decision] = sink.of_kind(DecisionRecord)
     assert decision.rule_refs == ("defense:direct:direct.suspicious",)
+
+
+async def test_discovery_inspection_is_committed_once_per_tool_version_and_policy() -> None:
+    """A repeat listing, and a call to a tool already seen in a listing,
+    reuse that result instead of re-running the defense and re-committing a
+    duplicate signal to History."""
+
+    async def flags(event: Event, context: Context) -> Result:
+        return Result.completed(signals=[Signal("seen", 1, "direct", event.payload["name"])])
+
+    discovery = ScriptedDefense(
+        "direct", flags, stages=frozenset({Stage.DISCOVERY}), produces=frozenset({"seen"})
+    )
+    proxy = _proxy(FakeUpstream(), MemorySink(), discovery)
+
+    await proxy.orchestrator.list_tools(ALICE)
+    await proxy.orchestrator.list_tools(ALICE)
+    await proxy.orchestrator.call_tool(ALICE, "server_a__read", {})
+
+    assert len(discovery.seen_events) == 2  # once each for "read" and "write", never again
+    assert len((await proxy.history.snapshot(ALICE_TASK)).signals) == 2
 
 
 async def test_delivery_finding_withholds_the_result_but_reports_that_the_call_ran() -> None:

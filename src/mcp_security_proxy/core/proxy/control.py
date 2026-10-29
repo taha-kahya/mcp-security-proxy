@@ -33,6 +33,7 @@ from mcp_security_proxy.sdk import (
     Principal,
     Stage,
     ToolDefinition,
+    ToolId,
 )
 from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.policy import PolicySnapshot, PrincipalPolicy
@@ -100,6 +101,15 @@ class ProxyControl:
         self._runner = runner
         self._guard = guard
         self._locks = locks or TaskLocks()
+        # Keyed by (task, tool, tool definition version, policy version): a
+        # discovery-stage inspection's result depends on nothing else, so a
+        # repeat `discover`/`authorize_call` for the same combination (one
+        # `tools/list` inspects every visible tool; a call re-checks its
+        # tool's definition) is served from here instead of re-running the
+        # Runner and re-committing a duplicate signal to this task's History.
+        self._definition_cache: dict[
+            tuple[TaskRef, ToolId, str, str], tuple[InspectionReport, ...]
+        ] = {}
 
     def serialized(self, principal: Principal) -> AbstractAsyncContextManager[None]:
         return self._locks.hold(self._tasks.task_for(principal))
@@ -195,7 +205,15 @@ class ProxyControl:
         if not self._runner.applies_to(Stage.DISCOVERY):
             return ()
         definition = self._definition(routed)
-        return await self._inspect(discovery_event(definition), principal, task, policy, definition)
+        key = (task, routed.tool_id, definition.version, policy.policy_version)
+        cached = self._definition_cache.get(key)
+        if cached is not None:
+            return cached
+        reports = await self._inspect(
+            discovery_event(definition), principal, task, policy, definition
+        )
+        self._definition_cache[key] = reports
+        return reports
 
     async def _inspect(
         self,
