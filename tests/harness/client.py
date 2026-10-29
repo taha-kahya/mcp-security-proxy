@@ -89,10 +89,15 @@ def build_proxy_config(
     policy: dict[str, Any] | None = None,
     principals_by_token: Mapping[str, str] | None = None,
     stdio_principal: str = DEFAULT_PRINCIPAL,
+    defenses: list[dict[str, Any]] | None = None,
+    tool_operations: Mapping[str, str] | None = None,
+    state_path: Path | None = None,
 ) -> dict[str, Any]:
     """Write the policy file into `workdir` and return a config referencing it.
 
-    The proxy's own audit log is `workdir / PROXY_AUDIT_LOG`.
+    The proxy's own audit log is `workdir / PROXY_AUDIT_LOG`. `defenses` are
+    defense config documents, written one file each; `tool_operations` maps
+    `server_id/tool` to an operation; `state_path` selects SQLite state.
     """
     if policy is None:
         policy = allow_all_policy(DEFAULT_PRINCIPAL, [server["id"] for server in servers])
@@ -115,6 +120,21 @@ def build_proxy_config(
         "audit_log_path": str(workdir / PROXY_AUDIT_LOG),
         "servers": servers,
     }
+    if defenses:
+        defenses_dir = workdir / "defenses"
+        defenses_dir.mkdir(exist_ok=True)
+        for document in defenses:
+            (defenses_dir / f"{document['id']}.yaml").write_text(
+                yaml.safe_dump(document), encoding="utf-8"
+            )
+        config["defenses_path"] = str(defenses_dir)
+    if tool_operations:
+        tools_path = workdir / "tools.yaml"
+        tools = {tool: {"operation": op} for tool, op in tool_operations.items()}
+        tools_path.write_text(yaml.safe_dump({"schema_version": 1, "tools": tools}), "utf-8")
+        config["tools_path"] = str(tools_path)
+    if state_path is not None:
+        config["state"] = {"backend": "sqlite", "path": str(state_path)}
     if agent_transport == "streamable-http":
         config["agent_host"] = "127.0.0.1"
         config["agent_port"] = free_port()

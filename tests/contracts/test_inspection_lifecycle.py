@@ -6,15 +6,18 @@ In-process, with a fake upstream that records whether it was ever called, so
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 from mcp import types
 from mcp.shared.exceptions import MCPError
 
+from mcp_security_proxy.defenses.samples.call_budget import create
 from mcp_security_proxy.sdk import (
     Capability,
     Context,
+    Defense,
     Event,
     Operation,
     OperationStatus,
@@ -43,7 +46,7 @@ ALICE_TASK = TaskRef("alice", "alice")
 
 
 def _proxy(
-    upstream: FakeUpstream, sink: MemorySink, *defenses: ScriptedDefense, **options: Any
+    upstream: FakeUpstream, sink: MemorySink, *defenses: Defense, **options: Any
 ) -> ProxyUnderTest:
     return build_proxy(
         routing=routing_for({"server_a": ["read", "write"]}),
@@ -188,3 +191,27 @@ async def test_unavailable_state_refuses_the_call_before_dispatch() -> None:
 
     assert exc_info.value.error.code == types.INTERNAL_ERROR
     assert upstream.calls == []
+
+
+async def test_in_flight_calls_count_against_the_budget_while_still_pending() -> None:
+    release = asyncio.Event()
+
+    async def slow() -> types.CallToolResult:
+        await release.wait()
+        return types.CallToolResult(content=[])
+
+    upstream = FakeUpstream(slow)
+    proxy = _proxy(upstream, MemorySink(), create({"max_operations": 2}))
+
+    calls = [
+        asyncio.create_task(proxy.orchestrator.call_tool(ALICE, "server_a__write", {}))
+        for _ in range(5)
+    ]
+    while len(upstream.calls) < 2:
+        await asyncio.sleep(0.01)
+    blocked = [await call for call in calls[2:]]
+    release.set()
+    allowed = [await call for call in calls[:2]]
+
+    assert all(r.is_error for r in blocked) and not any(r.is_error for r in allowed)
+    assert len(upstream.calls) == 2

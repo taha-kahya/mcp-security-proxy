@@ -8,6 +8,13 @@ identity:
   stdio_principal: local-agent
 policy_path: config/policies/default.yaml
 audit_log_path: proxy_audit.jsonl
+# Operator classification of tool semantics, and enabled defenses (V3).
+tools_path: config/tools.yaml
+defenses_path: config/defenses
+# Keeps task history across restarts; `memory` would reset it.
+state:
+  backend: sqlite
+  path: proxy_state.sqlite3
 servers:
   - id: server_a
     command: python

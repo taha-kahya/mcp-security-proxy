@@ -13,3 +13,9 @@ principals:
     - tool: server_b/send_message
       effect: require_approval
     # server_b/slow_write is not listed, so it is hidden.
+# What defense findings and incomplete inspections mean (see 0017). Unset
+# values default to block; config/defenses/*.yaml may override per defense.
+enforcement:
+  by_severity: {low: allow, medium: require_approval, high: block, critical: block}
+  on_failure: block
+  on_unsupported: block

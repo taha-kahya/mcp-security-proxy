@@ -1,15 +1,14 @@
 """Static checks for the architecture's dependency rules.
 
-The SDK must not import core or service implementations, so defenses written
-against it stay independent of them.
+The SDK must not import core or service implementations, and defenses must
+import only the SDK and their own package: never core, services, or another
+defense.
 """
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
-
-import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "src" / "mcp_security_proxy"
 PACKAGE = "mcp_security_proxy"
@@ -35,6 +34,22 @@ def _internal_imports_outside(directory: Path, allowed_prefix: str) -> list[str]
     return violations
 
 
-@pytest.mark.parametrize("directory", ["sdk"])
-def test_sdk_imports_only_itself(directory: str) -> None:
-    assert _internal_imports_outside(PACKAGE_ROOT / directory, f"{PACKAGE}.sdk") == []
+def test_sdk_imports_only_itself() -> None:
+    assert _internal_imports_outside(PACKAGE_ROOT / "sdk", f"{PACKAGE}.sdk") == []
+
+
+def _own_package(path: Path) -> str:
+    """`defenses/<category>/<name>/...` may import its own `<category>.<name>` package."""
+    parts = path.parent.relative_to(PACKAGE_ROOT / "defenses").parts[:2]
+    return ".".join([PACKAGE, "defenses", *parts]) if len(parts) == 2 else f"{PACKAGE}.sdk"
+
+
+def test_defenses_import_only_the_sdk_and_their_own_package() -> None:
+    violations = [
+        f"{path.relative_to(PACKAGE_ROOT)} imports {module}"
+        for path in sorted((PACKAGE_ROOT / "defenses").rglob("*.py"))
+        for module in _imported_modules(path)
+        if module.startswith(f"{PACKAGE}.")
+        and not module.startswith((f"{PACKAGE}.sdk", _own_package(path)))
+    ]
+    assert violations == []

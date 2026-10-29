@@ -13,6 +13,10 @@ dependencies = [
     "uvicorn>=0.30.0,<1.0.0",
 ]
 
+# Defenses register here; config/defenses/ decides which are enabled.
+[project.entry-points."mcp_security_proxy.defenses"]
+call_budget = "mcp_security_proxy.defenses.samples.call_budget:create"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0,<9.0.0",
@@ -31,7 +35,7 @@ packages = ["src/mcp_security_proxy", "fixtures"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "src/mcp_security_proxy/defenses"]
 
 [tool.ruff]
 line-length = 100

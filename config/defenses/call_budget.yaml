@@ -1,0 +1,13 @@
+# Sample defense (see src/mcp_security_proxy/defenses/samples/call_budget).
+# Caps side-effecting operations per task; the task is the principal (0016).
+id: call_budget
+enabled: true
+settings:
+  max_operations: 50
+  operations: [write, send, execute]
+  count_unknown: true
+# Optional: overrides the policy file's `enforcement` defaults for this defense.
+enforcement:
+  findings:
+    call_budget.exceeded: block
+  on_failure: block
