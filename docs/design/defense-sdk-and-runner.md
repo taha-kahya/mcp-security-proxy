@@ -156,7 +156,9 @@ tools:
 # policy file, optional section; unset values are block
 enforcement:
   by_severity: {low: allow, medium: require_approval, high: block, critical: block}
-  findings: {some.rule: block}
+  # A rule id must start with "<defense_id>." (checked at load), so two
+  # defenses' findings can't collide under the same enforcement entry.
+  findings: {call_budget.exceeded: block}
   on_failure: block
   on_unsupported: block
 ```

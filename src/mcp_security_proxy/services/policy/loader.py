@@ -10,7 +10,8 @@ while any change in meaning produces a new one.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from typing import Literal
 
@@ -66,9 +67,16 @@ class _PolicyDocument(BaseModel):
 
 
 def parse_policy(
-    data: object, enforcement_overrides: Mapping[str, object] | None = None
+    data: object,
+    enforcement_overrides: Mapping[str, object] | None = None,
+    defense_ids: Iterable[str] = (),
 ) -> PolicySnapshot:
-    """`enforcement_overrides` maps a defense id to its config's `enforcement`."""
+    """`enforcement_overrides` maps a defense id to its config's `enforcement`.
+
+    `defense_ids` is every enabled defense's id, for checking that a
+    `findings` rule id is prefixed with the defense it belongs to (below);
+    it may be a superset of `enforcement_overrides`'s keys.
+    """
     try:
         document = _PolicyDocument.model_validate(data)
         overrides = {
@@ -77,6 +85,10 @@ def parse_policy(
         }
     except ValidationError as exc:
         raise PolicyError(f"invalid policy: {exc}") from exc
+
+    _check_rule_id_prefixes(
+        document.enforcement, overrides, frozenset(defense_ids) | overrides.keys()
+    )
 
     version = canonical_digest(
         {
@@ -88,11 +100,37 @@ def parse_policy(
     return PolicySnapshot(version, document.rules_by_principal(), enforcement)
 
 
+def _check_rule_id_prefixes(
+    defaults: EnforcementEntry | None,
+    overrides: Mapping[str, EnforcementEntry],
+    known_defense_ids: AbstractSet[str],
+) -> None:
+    """A `findings` rule id not prefixed with its owning defense's id can
+    collide with another defense's rule id of the same name: both would get
+    the same enforcement, from whichever defense's entry is applied.
+    """
+    for defense_id, entry in overrides.items():
+        for rule_id in entry.findings:
+            if rule_id != defense_id and not rule_id.startswith(f"{defense_id}."):
+                raise PolicyError(
+                    f"{defense_id}'s enforcement.findings key {rule_id!r} "
+                    f"must be {defense_id!r} or start with {defense_id + '.'!r}"
+                )
+    for rule_id in defaults.findings if defaults is not None else {}:
+        if not any(rule_id == d or rule_id.startswith(f"{d}.") for d in known_defense_ids):
+            raise PolicyError(
+                f"policy enforcement.findings key {rule_id!r} does not start with "
+                "any enabled defense's id"
+            )
+
+
 def load_policy(
-    path: Path, enforcement_overrides: Mapping[str, object] | None = None
+    path: Path,
+    enforcement_overrides: Mapping[str, object] | None = None,
+    defense_ids: Iterable[str] = (),
 ) -> PolicySnapshot:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise PolicyError(f"cannot read policy file {path}: {exc}") from exc
-    return parse_policy(data, enforcement_overrides)
+    return parse_policy(data, enforcement_overrides, defense_ids)

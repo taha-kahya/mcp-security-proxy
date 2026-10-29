@@ -80,3 +80,20 @@ def test_invalid_enforcement_is_rejected(enforcement: dict[str, Any]) -> None:
         parse_policy(BASE | {"enforcement": enforcement})
     with pytest.raises(PolicyError):
         parse_policy(BASE, {"budget": enforcement})
+
+
+def test_an_overrides_findings_key_must_start_with_its_own_defense_id() -> None:
+    with pytest.raises(PolicyError, match="must be 'budget' or start with 'budget.'"):
+        parse_policy(BASE, {"budget": {"findings": {"other.exceeded": "block"}}})
+
+
+def test_the_policy_files_findings_key_must_start_with_a_known_defense_id() -> None:
+    with pytest.raises(PolicyError, match="does not start with any enabled defense's id"):
+        parse_policy(BASE | {"enforcement": {"findings": {"exceeded": "block"}}})
+
+    # Passes once "budget" is a known defense, whether from an override or from defense_ids.
+    parse_policy(BASE | {"enforcement": {"findings": {"budget.exceeded": "block"}}}, {"budget": {}})
+    parse_policy(
+        BASE | {"enforcement": {"findings": {"budget.exceeded": "block"}}},
+        defense_ids=["budget"],
+    )
