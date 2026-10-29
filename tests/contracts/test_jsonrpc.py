@@ -6,7 +6,9 @@ import pytest
 from mcp import types
 
 from mcp_security_proxy.core.proxy.codec.jsonrpc import (
+    blocked_call_result,
     ensure_call_tool_result,
+    unauthenticated_error,
     unexpected_upstream_result_error,
     unknown_tool_error,
 )
@@ -31,3 +33,16 @@ def test_ensure_call_tool_result_rejects_an_unexpected_type() -> None:
 def test_unexpected_upstream_result_error_uses_internal_error() -> None:
     error = unexpected_upstream_result_error("server_a__write_record", object())
     assert error.error.code == types.INTERNAL_ERROR
+
+
+def test_blocked_call_result_is_a_tool_error_citing_reason_and_decision() -> None:
+    result = blocked_call_result("requires approval", "abc123")
+
+    assert result.is_error
+    assert isinstance(result.content[0], types.TextContent)
+    assert "requires approval" in result.content[0].text
+    assert "abc123" in result.content[0].text
+
+
+def test_unauthenticated_error_is_an_invalid_request() -> None:
+    assert unauthenticated_error().error.code == types.INVALID_REQUEST

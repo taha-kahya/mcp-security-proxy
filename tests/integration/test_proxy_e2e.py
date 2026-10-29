@@ -41,6 +41,7 @@ async def test_discovery_merges_both_servers_with_disambiguated_names(
             mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
         ],
         agent_transport=transport,
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         tools = await session.list_tools()
@@ -62,6 +63,7 @@ async def test_calls_route_to_correct_server_despite_name_collision(
             mock_server_entry("server_b", b_log, transport),
         ],
         agent_transport=transport,
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         r_a = await session.call_tool(
@@ -95,6 +97,7 @@ async def test_unknown_tool_name_errors_without_touching_either_server(
             mock_server_entry("server_b", b_log, transport),
         ],
         agent_transport=transport,
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         with pytest.raises(MCPError) as exc_info:
@@ -113,6 +116,7 @@ async def test_tool_level_error_passes_through_unchanged(transport: str, tmp_pat
             mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
         ],
         agent_transport=transport,
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         result = await session.call_tool("server_a__read_record", {"key": "missing"})
@@ -131,6 +135,7 @@ async def test_cancellation_mid_call_does_not_complete_the_write(
             mock_server_entry("server_b", tmp_path / "b.jsonl", transport),
         ],
         agent_transport=transport,
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         task = asyncio.create_task(
@@ -178,6 +183,7 @@ async def test_dead_upstream_connection_fails_cleanly_without_affecting_other_se
             },
         ],
         agent_transport="stdio",
+        workdir=tmp_path,
     )
     async with proxy_session(config, tmp_path / "config.yaml") as session:
         first = await session.call_tool("flaky__crash_after_response", {"key": "k", "value": "v"})

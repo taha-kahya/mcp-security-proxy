@@ -1,36 +1,46 @@
-"""Startup wiring: connects to configured upstream servers, builds the routing
-table, and assembles the proxy's own agent-facing MCP server.
+"""Startup wiring: loads policy and the audit sink, connects to configured
+upstream servers, builds the routing table, and assembles the proxy's own
+agent-facing MCP server.
 
-Proxy remains a thin orchestrator: this module only wires together the
-transport, routing, and correlation pieces. It contains no attack detection
-or policy logic — that belongs to later phases.
+This module only constructs concrete implementations and injects them; the
+request lifecycle lives in `core/proxy/orchestrator.py`. Anything that can be
+validated without upstream servers (policy, audit sink, identity) is checked
+before any subprocess is spawned.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
-from mcp import ClientSession, types
-from mcp.server.context import ServerRequestContext
+from mcp import ClientSession
 from mcp.server.lowlevel import Server
 
+from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
-from mcp_security_proxy.core.proxy.codec.jsonrpc import (
-    ensure_call_tool_result,
-    unknown_tool_error,
-)
-from mcp_security_proxy.core.proxy.routing.correlation import CallStatus, CorrelationTracker
+from mcp_security_proxy.core.guard import Guard
+from mcp_security_proxy.core.proxy.orchestrator import ProxyOrchestrator
+from mcp_security_proxy.core.proxy.routing.correlation import CorrelationTracker
 from mcp_security_proxy.core.proxy.routing.table import RoutingTable
+from mcp_security_proxy.core.proxy.server import build_proxy_server
 from mcp_security_proxy.core.proxy.transport.stdio_client import connect_stdio_upstream
 from mcp_security_proxy.core.proxy.transport.streamable_http_client import (
     spawn_streamable_http_upstream,
 )
+from mcp_security_proxy.services.log import JsonlAuditSink
+from mcp_security_proxy.services.policy import PolicyError, PolicySnapshot, load_policy
+
+logger = logging.getLogger(__name__)
 
 
 class ProxyApp:
-    def __init__(self, server: Server) -> None:
+    def __init__(self, server: Server, serve: Callable[[Server], Awaitable[None]]) -> None:
         self.server = server
+        self._serve = serve
+
+    async def serve(self) -> None:
+        await self._serve(self.server)
 
 
 def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextManager[ClientSession]:
@@ -42,48 +52,60 @@ def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextMan
     )
 
 
+async def _discover_tools(sessions: Mapping[str, ClientSession]) -> RoutingTable:
+    routing_table = RoutingTable()
+    for server_id, session in sessions.items():
+        discovered = await session.list_tools()
+        routing_table.register_server_tools(server_id, discovered.tools)
+    return routing_table
+
+
+def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
+    unmatched = policy.unmatched_patterns(routed.tool_id for routed in routing_table.entries())
+    if unmatched:
+        names = ", ".join(str(pattern) for pattern in unmatched)
+        raise PolicyError(f"policy rules match no discovered tool: {names}")
+
+
+def warn_about_principal_mismatches(
+    policy: PolicySnapshot, identity_principal_ids: frozenset[str]
+) -> None:
+    """Mismatches fail safe (default deny), so they are warned about, not fatal:
+    one policy file may legitimately serve configs with different identities."""
+    for principal_id in sorted(policy.principal_ids - identity_principal_ids):
+        logger.warning(
+            "policy principal %r matches no configured identity; its rules apply to nobody",
+            principal_id,
+        )
+    for principal_id in sorted(identity_principal_ids - policy.principal_ids):
+        logger.warning(
+            "principal %r has no policy entry; every tool will be denied to it",
+            principal_id,
+        )
+
+
 @asynccontextmanager
 async def build_app(config: ProxyConfig) -> AsyncIterator[ProxyApp]:
-    routing_table = RoutingTable()
-    correlation = CorrelationTracker()
-    sessions: dict[str, ClientSession] = {}
+    policy = load_policy(config.policy_path)
+    audit = JsonlAuditSink.create(config.audit_log_path)
+    agent_facing = build_agent_facing(config)
+    warn_about_principal_mismatches(policy, config.agent_principal_ids())
 
     async with AsyncExitStack() as stack:
-        for upstream in config.servers:
-            session = await stack.enter_async_context(_connect_upstream(upstream))
-            sessions[upstream.id] = session
-            discovered = await session.list_tools()
-            routing_table.register_server_tools(upstream.id, discovered.tools)
+        sessions = {
+            upstream.id: await stack.enter_async_context(_connect_upstream(upstream))
+            for upstream in config.servers
+        }
+        routing_table = await _discover_tools(sessions)
+        _ensure_policy_targets_exist(policy, routing_table)
 
-        async def on_list_tools(
-            ctx: ServerRequestContext[object, object],
-            params: types.PaginatedRequestParams | None,
-        ) -> types.ListToolsResult:
-            return types.ListToolsResult(tools=routing_table.all_tools())
-
-        async def on_call_tool(
-            ctx: ServerRequestContext[object, object],
-            params: types.CallToolRequestParams,
-        ) -> types.CallToolResult:
-            try:
-                routed = routing_table.resolve(params.name)
-            except KeyError as exc:
-                raise unknown_tool_error(params.name) from exc
-
-            correlation_id = correlation.begin(routed.server_id, routed.external_name)
-            try:
-                result = await sessions[routed.server_id].call_tool(
-                    routed.bare_name, params.arguments or {}
-                )
-            except BaseException:
-                correlation.end(correlation_id, CallStatus.FAILED)
-                raise
-            correlation.end(correlation_id, CallStatus.COMPLETED)
-            return ensure_call_tool_result(params.name, result)
-
-        server = Server(
-            name="mcp-security-proxy",
-            on_list_tools=on_list_tools,
-            on_call_tool=on_call_tool,
+        orchestrator = ProxyOrchestrator(
+            routing=routing_table,
+            upstreams=sessions,
+            policy=policy,
+            guard=Guard(),
+            audit=audit,
+            correlation=CorrelationTracker(),
         )
-        yield ProxyApp(server)
+        server = build_proxy_server(orchestrator, agent_facing.identity)
+        yield ProxyApp(server, agent_facing.serve)

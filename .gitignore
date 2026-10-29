@@ -10,3 +10,7 @@ build/
 .pytest_cache/
 
 .DS_Store
+
+# Audit logs written by manual runs of the reference configs
+proxy_audit.jsonl
+server_*_audit.jsonl

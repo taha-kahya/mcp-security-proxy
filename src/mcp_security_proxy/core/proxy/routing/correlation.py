@@ -8,9 +8,12 @@ connection drops while calls are in flight, those calls can be reported as
 outcome-unknown rather than silently dropped or misattributed to another
 server.
 
-`mark_server_unknown` is not called anywhere yet (known V1 limitation, see
-0007): `wiring.py`'s `on_call_tool` currently ends an interrupted call as
-`FAILED`, not `UNKNOWN`, so this reporting is not actually wired up.
+Correlation ids are created before a call is decided (`new_correlation_id`),
+so the decision record, the in-flight entry, and the outcome record of one
+request all share the same id. `mark_server_unknown` is still not called
+anywhere: an interrupted call is ended as `UNKNOWN` by the orchestrator
+itself (see 0013), but a dropped connection does not yet proactively mark
+other in-flight calls against that server.
 """
 
 from __future__ import annotations
@@ -37,19 +40,21 @@ class InFlightCall:
     status: CallStatus = field(default=CallStatus.PENDING)
 
 
+def new_correlation_id() -> str:
+    return uuid4().hex
+
+
 class CorrelationTracker:
     def __init__(self) -> None:
         self._in_flight: dict[str, InFlightCall] = {}
 
-    def begin(self, server_id: str, external_tool_name: str) -> str:
-        correlation_id = uuid4().hex
+    def begin(self, correlation_id: str, server_id: str, external_tool_name: str) -> None:
         self._in_flight[correlation_id] = InFlightCall(
             correlation_id=correlation_id,
             server_id=server_id,
             external_tool_name=external_tool_name,
             started_at=monotonic(),
         )
-        return correlation_id
 
     def end(self, correlation_id: str, status: CallStatus) -> None:
         call = self._in_flight.pop(correlation_id, None)

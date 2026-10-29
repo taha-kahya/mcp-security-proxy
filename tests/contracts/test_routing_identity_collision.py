@@ -14,6 +14,7 @@ from mcp_security_proxy.core.proxy.routing.identity import (
     parse_external_tool_name,
 )
 from mcp_security_proxy.core.proxy.routing.table import RoutingTable
+from mcp_security_proxy.sdk import ToolId
 
 
 def _tool(name: str) -> types.Tool:
@@ -44,20 +45,29 @@ def test_routing_table_disambiguates_colliding_bare_names() -> None:
     external_names = {t.name for t in table.all_tools()}
     assert external_names == {"server_a__send_message", "server_b__send_message"}
 
-    routed_a = table.resolve("server_a__send_message")
+    routed_a = table.find("server_a__send_message")
+    assert routed_a is not None
     assert routed_a.server_id == "server_a"
     assert routed_a.bare_name == "send_message"
 
-    routed_b = table.resolve("server_b__send_message")
+    routed_b = table.find("server_b__send_message")
+    assert routed_b is not None
     assert routed_b.server_id == "server_b"
     assert routed_b.bare_name == "send_message"
 
 
-def test_routing_table_resolve_unknown_tool_raises() -> None:
+def test_routing_table_find_unknown_tool_returns_none() -> None:
     table = RoutingTable()
     table.register_server_tools("server_a", [_tool("read_record")])
-    with pytest.raises(KeyError):
-        table.resolve("server_a__nonexistent")
+    assert table.find("server_a__nonexistent") is None
+
+
+def test_routed_tool_exposes_its_server_scoped_tool_id() -> None:
+    table = RoutingTable()
+    table.register_server_tools("server_a", [_tool("read_record")])
+    routed = table.find("server_a__read_record")
+    assert routed is not None
+    assert routed.tool_id == ToolId("server_a", "read_record")
 
 
 def test_routing_table_preserves_original_tool_metadata() -> None:

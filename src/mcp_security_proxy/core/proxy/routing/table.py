@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from mcp import types
 
 from mcp_security_proxy.core.proxy.routing.identity import external_tool_name
+from mcp_security_proxy.sdk import ToolId
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,14 @@ class RoutedTool:
     bare_name: str
     external_name: str
     tool: types.Tool
+
+    @property
+    def tool_id(self) -> ToolId:
+        return ToolId(server_id=self.server_id, name=self.bare_name)
+
+    def external_tool(self) -> types.Tool:
+        """The upstream definition as advertised to the agent."""
+        return self.tool.model_copy(update={"name": self.external_name})
 
 
 class RoutingTable:
@@ -35,14 +44,11 @@ class RoutingTable:
                 raise ValueError(f"duplicate external tool name: {name!r}")
             self._by_external_name[name] = RoutedTool(server_id, tool.name, name, tool)
 
-    def all_tools(self) -> list[types.Tool]:
-        return [
-            routed.tool.model_copy(update={"name": routed.external_name})
-            for routed in self._by_external_name.values()
-        ]
+    def entries(self) -> list[RoutedTool]:
+        return list(self._by_external_name.values())
 
-    def resolve(self, external_name: str) -> RoutedTool:
-        try:
-            return self._by_external_name[external_name]
-        except KeyError:
-            raise KeyError(f"unknown tool: {external_name!r}") from None
+    def all_tools(self) -> list[types.Tool]:
+        return [routed.external_tool() for routed in self.entries()]
+
+    def find(self, external_name: str) -> RoutedTool | None:
+        return self._by_external_name.get(external_name)
