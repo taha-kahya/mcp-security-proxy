@@ -8,11 +8,15 @@ specific implementation choices were made,
 [`docs/design/tool-identity-and-routing.md`](docs/design/tool-identity-and-routing.md)
 for how tool routing works, and
 [`docs/design/request-lifecycle-and-control.md`](docs/design/request-lifecycle-and-control.md)
-for how calls are authenticated, authorized, and audited.
+for how calls are authenticated, authorized, and audited, and
+[`docs/design/defense-sdk-and-runner.md`](docs/design/defense-sdk-and-runner.md)
+for how defenses plug in. To write one, follow
+[`docs/guides/adding-a-defense.md`](docs/guides/adding-a-defense.md).
 
-Current scope (V1 + V2): `Agent <-> Proxy <-> Two mock MCP servers`, with
+Current scope (V1 + V2 + V3): `Agent <-> Proxy <-> Two mock MCP servers`, with
 correct protocol handling, discovery, routing, and correlation over stdio and
-Streamable HTTP (V1), plus control (V2):
+Streamable HTTP (V1), control (V2), and the defense SDK and Runner (V3).
+Control (V2):
 
 - **Identity:** a principal fixed in config for stdio; static bearer tokens
   (stored as SHA-256 digests) for Streamable HTTP.
@@ -25,7 +29,22 @@ Streamable HTTP (V1), plus control (V2):
   log with arguments masked. If a decision can't be recorded, the call is not
   dispatched.
 
-There is no attack detection yet; that starts with V3/V4.
+SDK and Runner (V3):
+
+- **Defenses** are packages written against `mcp_security_proxy.sdk` only,
+  registered as entry points and enabled per file in `config/defenses/`.
+  They inspect tool definitions (discovery), call arguments (before
+  execution), and results (before delivery). They report findings, and Guard
+  decides using the policy's `enforcement` settings, where anything unset
+  blocks.
+- **Shared capabilities:** a versioned tool Registry with operator-written
+  tool semantics (`config/tools.yaml`), task-scoped History of every
+  authorized operation, and versioned State (in-memory or SQLite).
+- **Concurrency:** deciding and reserving a call are serialized per task, so
+  parallel calls can't slip past a history rule.
+- **Sample defense:** `call_budget` caps side-effecting operations per task.
+
+There is no attack detection yet; that is V4.
 
 ## Setup
 
@@ -87,6 +106,12 @@ In both configs, tools are exposed to the client under disambiguated names
 (`server_a__read_record`, `server_b__send_message`, etc.) — see
 [`docs/design/tool-identity-and-routing.md`](docs/design/tool-identity-and-routing.md)
 for why.
+
+Both reference configs enable the sample `call_budget` defense
+([`config/defenses/call_budget.yaml`](config/defenses/call_budget.yaml)),
+classify the mock tools in [`config/tools.yaml`](config/tools.yaml), and
+keep task history in `proxy_state.sqlite3`, so the budget survives restarts.
+Delete that file to reset it.
 
 Both reference configs use the policy in
 [`config/policies/default.yaml`](config/policies/default.yaml): all of
@@ -150,15 +175,23 @@ src/mcp_security_proxy/
   core/
     proxy/                # orchestrator, SDK server adapter, routing/transport/codec
     identity/             # principal resolution and bearer-token verification
-    guard/                # authorization decisions
+    guard/                # authorization decisions from policy and inspection reports
+    runner/               # defense catalog, startup plan, execution, scoped context
   services/
-    policy/               # policy loading, validation, versioning, matching
+    policy/               # policy loading, validation, versioning, matching, enforcement
     log/                  # audit records, argument masking, JSONL sink
-  sdk/                    # contract types shared by core, services, and later defenses
+    registry/             # versioned tool definitions and configured tool semantics
+    history/              # task-scoped operation history and signals
+    state/                # scoped versioned records (memory, SQLite)
+    approval/             # approval interfaces (implemented in V5)
+  sdk/                    # public contracts and test helpers for defenses
+  defenses/               # defense packages (samples/call_budget)
 fixtures/
   mock_servers/            # two harmless mock MCP servers, reused by tests and manual runs
 config/                   # reference configs for Config A (stdio) and Config B (HTTP)
   policies/               # reference policy files
+  defenses/               # one file per enabled defense: settings and enforcement
+  tools.yaml              # operator classification of tool semantics
 tests/
   contracts/               # fast, no-subprocess unit tests + mock server contract tests
   integration/             # full proxy end-to-end tests, parametrized over both configs
@@ -167,5 +200,6 @@ docs/
   architecture.md          # the overall design and phased build plan
   decisions/                # ADRs for implementation choices, per phase
   design/                   # permanent reference docs promoted from settled ADRs
+  guides/                   # developer guides (adding a defense)
   runbooks/                 # manual verification procedures (e.g. the Codex+Qwen smoke test)
 ```

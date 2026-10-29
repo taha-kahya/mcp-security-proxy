@@ -8,6 +8,12 @@ they may do, and records it. Promoted from the ADRs that settled this design
 [0013](../decisions/0013-audit-records-masking-and-fail-closed.md)). Read those
 for the *why*. This doc is the *what*, kept up to date as later phases extend it.
 
+**V3:** calls are now also inspected by defenses before Guard decides, and
+results before they are released. The full lifecycle with inspection, and
+the SDK and capability contracts, are in
+[defense-sdk-and-runner.md](defense-sdk-and-runner.md). The sections below
+describe the control layer that V3 builds on.
+
 ## Lifecycle
 
 ```mermaid
@@ -74,16 +80,22 @@ validation only, never per request. *Scope:* per principal (no task scope,
 0011). *Concurrency:* immutable after startup. *Versioning:* `sha256:` of the
 canonical document, carried on every decision; `schema_version: 1`.
 
-**Guard** — *Input:* `ToolId | None`, `PrincipalPolicy`. *Output:*
+**Guard** — *Input:* `ToolId | None`, `PrincipalPolicy`, and (V3)
+inspection reports. *Output:*
 `Decision(outcome, rule_refs, reason, policy_version, decision_id)`.
 *Errors:* none. *Concurrency:* stateless. *Precedence:* unknown tool →
 block; no rule → block (default deny); exact rule beats server wildcard;
+then the strictest of the rule and every inspection's enforcement (0017);
 only `allow` dispatches.
 
-**Log** — *Input:* `DiscoveryRecord`, `DecisionRecord`, `OutcomeRecord`.
+**Log** — *Input:* `DiscoveryRecord`, `DecisionRecord`, `OutcomeRecord`,
+and (V3) `DeliveryRecord`; decision and delivery records carry one
+`InspectionSummary` per defense (status, finding rule ids, detail; never
+inspected content).
 *Output:* one JSON line per record. *Errors:* `AuditWriteError`; a failed
-decision or discovery write refuses the request, while a failed outcome
-write is reported on stderr. *Concurrency:* writes serialized by a lock and
+decision, discovery, or delivery write refuses the request (a refused
+delivery withholds the result), while a failed outcome write is reported on
+stderr. *Concurrency:* writes serialized by a lock and
 flushed before returning. *Masking:* arguments → SHA-256 + sorted key names.
 
 ## Configuration
@@ -117,7 +129,11 @@ or a policy rule that matches no discovered tool.
 
 ## Limitations (deliberate, V2 scope)
 
+V3-specific limitations are listed in
+[defense-sdk-and-runner.md](defense-sdk-and-runner.md#limitations-deliberate-v3-scope).
+
 - **No task boundary.** Permissions apply per principal, across sessions.
+  From V3, history is also kept per principal (0016).
 - **Static configuration.** Changing policy or tokens requires a restart.
 - **Tools only.** Resources, prompts, and other methods are not proxied (as
   in V1), so there is nothing to bypass control through them.
@@ -129,13 +145,14 @@ or a policy rule that matches no discovered tool.
   only the first page of `tools/list` (`nextCursor` is ignored), and
   ignores `notifications/tools/list_changed`, so the agent keeps the
   startup definitions even if a server changes its tools.
-- **Tool definitions are forwarded unchanged and unversioned.** Apart from
-  the disambiguated name, every upstream field (including annotations,
-  `_meta`, unknown fields, and non-standard schema keywords) reaches the
-  agent as sent. Tools are identified by `server_id/name` only, with no
-  definition version, so a policy rule approves whatever definition the
-  server sends and audit records cannot show which definition was exposed.
+- **Tool definitions are forwarded unchanged.** Apart from the disambiguated
+  name, every upstream field (including annotations, `_meta`, unknown
+  fields, and non-standard schema keywords) reaches the agent as sent. From
+  V3, Registry versions each definition by digest and discovery-stage
+  defenses can hide one, but policy rules still match `server_id/name`
+  regardless of the definition's version.
 - **`require_approval` always blocks** until the Approval module (V5).
+  This applies whether it comes from a policy rule or from enforcement.
 - **Proactive outcome-unknown marking** of *other* in-flight calls when a
   connection drops (`CorrelationTracker.mark_server_unknown`) is still not
   wired up. Each interrupted call records its own `unknown` outcome.

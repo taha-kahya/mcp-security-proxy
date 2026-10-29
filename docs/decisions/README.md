@@ -25,3 +25,7 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0013](0013-audit-records-masking-and-fail-closed.md) | Audit records: what is logged, masking, and failing closed | Accepted |
 | [0014](0014-http-listener-exposure-and-token-strength.md) | HTTP listener exposure and bearer-token strength | Accepted |
 | [0015](0015-dependency-provenance-mcp-and-httpx2.md) | Dependency provenance: mcp, mcp-types, and httpx2 | Accepted |
+| [0016](0016-task-boundary-and-state-backends.md) | V3 task boundary is the principal; State has memory and SQLite adapters | Accepted |
+| [0017](0017-enforcement-defaults-and-defense-overrides.md) | Enforcement: policy defaults, per-defense overrides, strictest wins | Accepted |
+| [0018](0018-defense-extension-mechanism.md) | Defense extension: entry points, manifests, and failures as results | Accepted |
+| [0019](0019-inspection-stages-and-delivery-semantics.md) | Inspection stages: definitions gate calls; withheld results ran | Accepted |
