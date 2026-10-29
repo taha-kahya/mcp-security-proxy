@@ -1,6 +1,7 @@
 """State: scoped, versioned records with atomic updates."""
 
 from mcp_security_proxy.services.state.memory import InMemoryStateStore
+from mcp_security_proxy.services.state.private import DefenseStateStore, defense_owner
 from mcp_security_proxy.services.state.sqlite import SqliteStateStore
 from mcp_security_proxy.services.state.store import (
     Change,
@@ -13,6 +14,7 @@ from mcp_security_proxy.services.state.store import (
 
 __all__ = [
     "Change",
+    "DefenseStateStore",
     "InMemoryStateStore",
     "Scope",
     "SqliteStateStore",
@@ -20,4 +22,5 @@ __all__ = [
     "StateUnavailableError",
     "TaskRef",
     "UpdateResult",
+    "defense_owner",
 ]
