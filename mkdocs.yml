@@ -1,0 +1,109 @@
+site_name: MCP Security Proxy
+site_description: A proxy between an MCP client and its servers that enforces identity, policy and audit, with pluggable defenses against attacks on the Model Context Protocol.
+site_url: https://taha-kahya.github.io/mcp-security-proxy/
+repo_url: https://github.com/taha-kahya/mcp-security-proxy
+repo_name: mcp-security-proxy
+edit_uri: edit/main/docs/
+copyright: ENS492 MCP Security Tool · Sabancı University
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+# Every page must be in the nav and every link must resolve, so a new ADR or
+# design doc that is not added below fails the build (mkdocs build --strict).
+exclude_docs: |
+  decisions/0000-template.md
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+
+nav:
+  - Home: index.md
+  - Guide:
+      - How it works: guide/how-it-works.md
+      - Getting started: guide/getting-started.md
+      - Roadmap: guide/roadmap.md
+  - Architecture:
+      - architecture.md
+      - design/request-lifecycle-and-control.md
+      - design/tool-identity-and-routing.md
+  - Decisions:
+      - decisions/README.md
+      - decisions/0001-language-runtime-and-tooling.md
+      - decisions/0002-dual-transport-scope.md
+      - decisions/0003-mock-server-hosting-subprocess.md
+      - decisions/0004-scripted-harness-over-llm-agent.md
+      - decisions/0005-codex-qwen-smoke-test-isolated-mr.md
+      - decisions/0006-mock-server-http-port-allocation.md
+      - decisions/0007-tool-identity-correlation-and-stdio-failure-semantics.md
+      - decisions/0008-streamable-http-scope-and-port-allocation.md
+      - decisions/0009-subprocess-stdout-must-never-be-inherited.md
+      - decisions/0010-policy-model-and-default-deny.md
+      - decisions/0011-identity-per-transport-and-no-task-boundary.md
+      - decisions/0012-decision-semantics-and-denial-responses.md
+      - decisions/0013-audit-records-masking-and-fail-closed.md
+      - decisions/0014-http-listener-exposure-and-token-strength.md
+      - decisions/0015-dependency-provenance-mcp-and-httpx2.md
+  - Runbooks:
+      - runbooks/codex-qwen-smoke-test.md
+
+extra_css:
+  - assets/site.css
+
+extra_javascript:
+  - path: assets/diagrams.js
+    type: module
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: diagram
+          format: !!python/name:pymdownx.superfences.fence_div_format

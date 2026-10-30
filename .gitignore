@@ -14,3 +14,6 @@ build/
 # Audit logs written by manual runs of the reference configs
 proxy_audit.jsonl
 server_*_audit.jsonl
+
+# Documentation site build output (mkdocs build)
+site/
