@@ -14,7 +14,7 @@ re-deciding.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -34,7 +34,13 @@ from mcp_security_proxy.services.history.codec import (
     signal_from_json,
     signal_to_json,
 )
-from mcp_security_proxy.services.state import StateStore, StateUnavailableError, TaskRef
+from mcp_security_proxy.services.state import (
+    Change,
+    StateStore,
+    StateUnavailableError,
+    TaskRef,
+    UpdateResult,
+)
 
 HISTORY_OWNER = "history"
 _KEY = "task"
@@ -129,10 +135,28 @@ class History:
     async def finish(self, task: TaskRef, operation_id: str, status: OperationStatus) -> None:
         await self._update(task, lambda document: document.with_status(operation_id, status))
 
-    async def record_signals(self, task: TaskRef, signals: Iterable[Signal]) -> None:
-        signals = tuple(signals)
-        if signals:
-            await self._update(task, lambda document: document.with_signals(signals))
+    async def record_signals(
+        self, task: TaskRef, signals: Iterable[Signal], *, alongside: Sequence[Change] = ()
+    ) -> UpdateResult:
+        """Append `signals` and apply `alongside` in one atomic update, so
+        neither is stored without the other.
+
+        Retries only while History itself is contended. If a change in
+        `alongside` is stale, nothing is written and the result lists it.
+        """
+        signals, alongside = tuple(signals), tuple(alongside)
+        if not signals:
+            return await self._state.apply(alongside) if alongside else UpdateResult(applied=True)
+        scope = task.scope(HISTORY_OWNER)
+        for _ in range(_MAX_ATTEMPTS):
+            stored = await self._state.read(scope, _KEY)
+            updated = _TaskDocument.from_json(stored.value).with_signals(signals)
+            result = await self._state.apply(
+                [Change(scope, _KEY, stored.version, updated.to_json()), *alongside]
+            )
+            if result.applied or any(c.scope != scope for c in result.conflicts):
+                return result
+        raise StateUnavailableError(f"history for {task} stayed contended; update abandoned")
 
     async def recover_interrupted(self) -> int:
         """At startup: operations still pending were cut off by a restart, so

@@ -28,7 +28,7 @@ sequenceDiagram
     Control->>Runner: discovery event (definition)
     Control->>Runner: before_execution event (arguments, action)
     Runner-->>Control: InspectionReport per defense
-    Control->>History: commit signals / private state
+    Control->>History: commit signals + private state (one atomic update)
     Control->>Guard: decide(tool_id, policy, reports)
     Guard-->>Control: Decision
     Orchestrator->>Log: decision record (fail closed)

@@ -236,13 +236,21 @@ class ProxyControl:
         return reports
 
     async def _commit(self, task: TaskRef, reports: Iterable[InspectionReport]) -> None:
-        """Commit what defenses proposed before anything is released."""
+        """Commit what defenses proposed before anything is released.
+
+        Signals and private-state changes go in one atomic update: if a
+        private-state proposal is stale, the inspection's signals are not
+        kept in History either.
+        """
         reports = list(reports)
-        await self._history.record_signals(task, (s for r in reports for s in r.result.signals))
         proposals = {
             r.defense_id: r.result.state_changes for r in reports if r.result.state_changes
         }
-        committed = await self._defense_state.commit(task, proposals)
+        committed = await self._history.record_signals(
+            task,
+            (s for r in reports for s in r.result.signals),
+            alongside=self._defense_state.changes(task, proposals),
+        )
         if not committed.applied:
             stale = sorted({change.scope.owner for change in committed.conflicts})
             raise StateUnavailableError(f"stale private-state proposals from {stale}")

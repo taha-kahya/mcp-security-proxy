@@ -12,6 +12,7 @@ from mcp_security_proxy.sdk import Operation, OperationStatus, Signal, ToolId
 from mcp_security_proxy.sdk.testing import action
 from mcp_security_proxy.services.history import History, UnknownOperationError
 from mcp_security_proxy.services.state import (
+    Change,
     InMemoryStateStore,
     SqliteStateStore,
     StateStore,
@@ -77,6 +78,23 @@ async def test_signals_are_committed_with_provenance(state: StateStore) -> None:
 
     [signal] = (await history.snapshot(ALICE)).signals_of("sensitivity")
     assert signal.producer == "scanner" and signal.value["level"] == "high"
+
+
+async def test_signals_are_not_kept_when_a_change_alongside_is_stale(state: StateStore) -> None:
+    history = History(state)
+    scope = ALICE.scope("defense:scanner")
+    await state.compare_and_set(scope, "seen", 0, 1)
+    signal = Signal("sensitivity", 1, "scanner", {"level": "high"})
+
+    stale = await history.record_signals(ALICE, [signal], alongside=[Change(scope, "seen", 0, 2)])
+    assert not stale.applied and [c.key for c in stale.conflicts] == ["seen"]
+    assert (await history.snapshot(ALICE)).signals == ()
+    assert (await state.read(scope, "seen")).value == 1
+
+    fresh = await history.record_signals(ALICE, [signal], alongside=[Change(scope, "seen", 1, 2)])
+    assert fresh.applied
+    assert len((await history.snapshot(ALICE)).signals) == 1
+    assert (await state.read(scope, "seen")).value == 2
 
 
 async def test_concurrent_reservations_are_all_kept(state: StateStore) -> None:

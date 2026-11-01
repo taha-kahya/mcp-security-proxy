@@ -1,9 +1,10 @@
 """Each defense's private state, scoped to that defense and one task.
 
 A defense only reads its own snapshot and proposes `StateChange`s; it never
-writes. The core commits every proposal from one inspection in a single
-atomic `apply`, scoped by the defense id the Runner attributed it to, so a
-defense cannot write into another defense's state.
+writes. The core commits every proposal from one inspection, together with
+the signals it produced, in a single atomic `apply`, scoped by the defense
+id the Runner attributed it to, so a defense cannot write into another
+defense's state.
 """
 
 from __future__ import annotations
@@ -25,15 +26,21 @@ class DefenseStateStore:
     async def snapshot(self, defense_id: str, task: TaskRef) -> PrivateState:
         return PrivateState(await self._store.read_scope(task.scope(defense_owner(defense_id))))
 
-    async def commit(
-        self, task: TaskRef, proposals: Mapping[str, Sequence[StateChange]]
-    ) -> UpdateResult:
-        """`proposals` maps a defense id to the changes it proposed."""
-        changes = [
+    @staticmethod
+    def changes(task: TaskRef, proposals: Mapping[str, Sequence[StateChange]]) -> list[Change]:
+        """`proposals` maps a defense id to the changes it proposed; each is
+        scoped to that defense, for committing alongside other changes."""
+        return [
             Change(task.scope(defense_owner(defense_id)), c.key, c.expected_version, c.value)
             for defense_id, proposed in proposals.items()
             for c in proposed
         ]
+
+    async def commit(
+        self, task: TaskRef, proposals: Mapping[str, Sequence[StateChange]]
+    ) -> UpdateResult:
+        """`proposals` maps a defense id to the changes it proposed."""
+        changes = self.changes(task, proposals)
         if not changes:
             return UpdateResult(applied=True)
         return await self._store.apply(changes)
