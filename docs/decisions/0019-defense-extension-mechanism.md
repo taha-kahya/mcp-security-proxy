@@ -1,4 +1,4 @@
-# 0018 — Defense extension: entry points, manifests, and failures as results
+# 0019 — Defense extension: entry points, manifests, and failures as results
 
 Status: Accepted
 

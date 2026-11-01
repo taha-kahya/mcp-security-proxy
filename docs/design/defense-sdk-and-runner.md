@@ -2,10 +2,10 @@
 
 Permanent reference for the contracts defenses are written against and the
 shared capabilities behind them. Promoted from
-[0016](../decisions/0016-task-boundary-and-state-backends.md),
-[0017](../decisions/0017-enforcement-defaults-and-defense-overrides.md),
-[0018](../decisions/0018-defense-extension-mechanism.md), and
-[0019](../decisions/0019-inspection-stages-and-delivery-semantics.md). For
+[0017](../decisions/0017-task-boundary-and-state-backends.md),
+[0018](../decisions/0018-enforcement-defaults-and-defense-overrides.md),
+[0019](../decisions/0019-defense-extension-mechanism.md), and
+[0020](../decisions/0020-inspection-stages-and-delivery-semantics.md). For
 how to write one, see the
 [developer guide](../guides/adding-a-defense.md).
 
@@ -106,7 +106,7 @@ digest of `config/tools.yaml`. Unregistered and unlisted tools are always
 **History** (`HistorySnapshot`) — *Input:* none (bound to the task).
 *Output:* `operations` (`OperationRecord`: id, correlation id, tool id,
 action, status, start time), `signals`, `version`. *Scope:* one task (the
-principal, 0016). *Errors:* `StateUnavailableError` refuses the request
+principal, 0017). *Errors:* `StateUnavailableError` refuses the request
 (`INTERNAL_ERROR`) before dispatch. *Concurrency:* a consistent snapshot
 taken under the task lock; pending reservations are included. *Versioning:*
 the record version; persisted JSON has its shape defined in
@@ -175,7 +175,7 @@ enforcement: {on_failure: block}       # optional override, same shape
 
 ## Limitations (deliberate, V3 scope)
 
-- **Task = principal** (0016); no per-session or per-conversation history.
+- **Task = principal** (0017); no per-session or per-conversation history.
 - **One process per state file**, because task locks are in-process. This is
   enforced: a second process using the same SQLite file refuses to start.
 - **Unbounded per-task history**; no compaction.
@@ -183,7 +183,7 @@ enforcement: {on_failure: block}       # optional override, same shape
   and prompts (resources and prompts are still not proxied at all).
 - **No scan capability, argument-aware tool adapters, `Registry.approved`,
   or server-identity view** yet. V4 adds them one MR at a time
-  ([0020](../decisions/0020-v4-capability-first-delivery.md)).
+  ([0021](../decisions/0021-v4-capability-first-delivery.md)).
 - **Definitions are still read once at startup**, so temporal defenses have
   nothing to compare against until re-discovery exists.
 - **Deadlines** cannot interrupt a defense that blocks the event loop.

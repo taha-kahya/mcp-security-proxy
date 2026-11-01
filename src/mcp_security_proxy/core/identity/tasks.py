@@ -1,6 +1,6 @@
 """Resolve the task a verified principal's operational state is kept under.
 
-There is still no trusted source of task ids (see 0011 and 0016): the MCP
+There is still no trusted source of task ids (see 0011 and 0017): the MCP
 session belongs to the connection, and anything in the payload is
 agent-controlled. The configured isolation boundary is therefore the
 principal itself: every session of one principal shares one task, so

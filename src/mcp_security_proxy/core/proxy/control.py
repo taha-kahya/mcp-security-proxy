@@ -109,7 +109,7 @@ class ProxyControl:
         # Runner and re-committing a duplicate signal to this task's History.
         # That is only sound while the result depends on nothing else, so
         # see `_cacheable`. Entries are never evicted: they are bounded by
-        # the tool and policy versions seen in this process (ADR 0019).
+        # the tool and policy versions seen in this process (ADR 0020).
         self._definition_cache: dict[
             tuple[TaskRef, ToolId, str, str], tuple[InspectionReport, ...]
         ] = {}

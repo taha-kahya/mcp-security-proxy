@@ -85,7 +85,7 @@ inspection reports. *Output:*
 `Decision(outcome, rule_refs, reason, policy_version, decision_id)`.
 *Errors:* none. *Concurrency:* stateless. *Precedence:* unknown tool →
 block; no rule → block (default deny); exact rule beats server wildcard;
-then the strictest of the rule and every inspection's enforcement (0017);
+then the strictest of the rule and every inspection's enforcement (0018);
 only `allow` dispatches.
 
 **Log** — *Input:* `DiscoveryRecord`, `DecisionRecord`, `OutcomeRecord`,
@@ -133,7 +133,7 @@ V3-specific limitations are listed in
 [defense-sdk-and-runner.md](defense-sdk-and-runner.md#limitations-deliberate-v3-scope).
 
 - **No task boundary.** Permissions apply per principal, across sessions.
-  From V3, history is also kept per principal (0016).
+  From V3, history is also kept per principal (0017).
 - **Static configuration.** Changing policy or tokens requires a restart.
 - **Tools only.** Resources, prompts, and other methods are not proxied (as
   in V1), so there is nothing to bypass control through them.

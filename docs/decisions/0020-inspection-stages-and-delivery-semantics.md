@@ -1,4 +1,4 @@
-# 0019 — Inspection stages: definitions gate calls; withheld results ran
+# 0020 — Inspection stages: definitions gate calls; withheld results ran
 
 Status: Accepted
 
@@ -18,7 +18,9 @@ produced it.
   listed in the discovery record's `hidden_by_inspection`. This binary
   visible-or-hidden outcome is the V3 behavior. Finer exposure outcomes,
   such as exposing a tool with a flagged field redacted and requiring
-  approval for its calls, are decided in their own ADR.
+  approval for its calls, are decided in
+  [0016](0016-direct-metadata-defense-defaults.md), which refines this
+  discovery outcome.
 - **Definitions gate calls too.** `tools/call` re-runs the same definition
   check first. A tool hidden by inspection answers exactly like a
   nonexistent tool (as in 0012), so it can't be called by guessing its name.

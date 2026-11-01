@@ -1,4 +1,4 @@
-# 0017 — Enforcement: policy defaults, per-defense overrides, strictest wins
+# 0018 — Enforcement: policy defaults, per-defense overrides, strictest wins
 
 Status: Accepted
 

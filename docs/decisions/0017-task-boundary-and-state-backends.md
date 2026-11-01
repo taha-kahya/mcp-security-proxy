@@ -1,4 +1,4 @@
-# 0016 — V3 task boundary is the principal; State has memory and SQLite adapters
+# 0017 — V3 task boundary is the principal; State has memory and SQLite adapters
 
 Status: Accepted
 
