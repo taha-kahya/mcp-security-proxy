@@ -52,7 +52,7 @@ All covered traffic must pass through Proxy. A server or agent that can bypass i
 | **Guard** | Combine policy, inspection results, and authorization context into one decision. | Policy | Scan content, call servers, or grant consent. |
 | **SDK** | Define stable contracts and scoped capability interfaces for defenses. | Contract types only | Import concrete core or storage implementations. |
 | **Scan** | Provide reusable content analysis. | Configured detector adapters | Decide whether an operation may execute. |
-| **Registry** | Manage versioned tool definitions and configured tool semantics. | State, tool adapters | Treat server claims as verified permissions. |
+| **Registry** | Manage versioned server records, versioned tool definitions, and configured tool semantics. | State, tool adapters | Treat server claims as verified permissions. |
 | **History** | Provide consistent task-scoped operation history and security signals. | State | Act as a free-form log or infer user intent. |
 | **Policy** | Provide validated, versioned permissions and enforcement rules. | Configuration provider | Accept policy changes from server content. |
 | **State** | Persist scoped records with atomic update guarantees. | Storage adapter | Contain attack-specific reasoning. |
@@ -224,12 +224,31 @@ Decision
 
 Policy maps findings and inspection statuses to enforcement. Hard blocks take precedence over approval requirements and allows. A defense reporting no finding cannot cancel another defense's finding.
 
+At discovery, Guard makes exposure decisions instead of call decisions:
+
+```text
+Guard.expose(subject, context, results) -> ExposureDecision
+
+ExposureDecision
+  subject                # item version (tool, prompt, resource) | server record
+  outcome                # items: expose | expose_redacted | hide
+                         # server instructions: forward | withhold
+  call_outcome?          # exposed tools: allow | require_approval
+  redacted_fields[]      # field paths replaced by a fixed proxy string
+  rule_refs[]
+  reason
+  policy_version
+```
+
+One exposure decision is made per (principal, item version) and per (principal, server record). Listing and calling use the same decision, so an item's visibility and its callability cannot diverge. Policy maps findings to exposure outcomes as it does for calls. See [Discovery lifecycle](#discovery-lifecycle).
+
 ### Shared capability interfaces
 
 ```text
 Scan.instructions(content) -> ScanResult
 Scan.secrets(content) -> ScanResult
-Registry.current(tool_id) -> ToolDefinition
+Registry.server(server_id) -> ServerRecord
+Registry.current(tool_id) -> ToolDefinition   # includes its definition version
 Registry.approved(tool_id) -> ToolDefinition?
 Registry.action(tool_id, arguments) -> Action
 History.snapshot(task_id) -> HistorySnapshot
@@ -258,6 +277,22 @@ Direct and temporal defenses share Registry: direct checks what a definition say
 Do not require indirect injection detection to succeed before cross-tool enforcement can work. Sensitivity analysis is a shared Scan capability. Missing sensitivity evidence means unknown, not safe.
 
 Reuse scan computations within an inspection and, where safe, across inspections. Cache keys must include content identity, scanner version, relevant settings, and isolation scope. Version changes invalidate cached judgments. Avoid cross-user data exposure through caches.
+
+## Discovery lifecycle
+
+Discovery is everything the proxy does before the agent sees a server's metadata: initialization, listing tools, prompts and resources, inspection, and the decision on what to expose. The lifecycle is shared by every defense category. Direct defenses act here, because the metadata reaches the LLM as soon as the agent lists tools, before any call.
+
+1. Proxy initializes each upstream server and keeps the `InitializeResult` as an untrusted server record.
+2. Proxy lists each server's items completely, following pagination to the end.
+3. Proxy fingerprints each item's upstream form; the fingerprint, named with its algorithm, is the item's definition version.
+4. Registry stores the server record and the versioned items.
+5. Runner runs discovery-stage defenses once every server is registered.
+6. Guard makes one exposure decision per (principal, item version) and per (principal, server record).
+7. Proxy publishes its own `InitializeResult` and lists from those decisions and records them.
+8. Proxy dispatches a call only if the tool's version is the one the agent was shown, and otherwise rejects it.
+9. Proxy repeats steps 2-7 when an upstream server reports that its items changed.
+
+The lifecycle is specified in [`design/discovery-lifecycle.md`](design/discovery-lifecycle.md). The defaults for direct defenses are in [`design/direct-metadata-defenses.md`](design/direct-metadata-defenses.md), and the decisions behind them in [ADR 0016](decisions/0016-direct-metadata-defense-defaults.md).
 
 ## Request and response lifecycle
 
