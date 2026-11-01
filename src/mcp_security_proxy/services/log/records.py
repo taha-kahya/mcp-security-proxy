@@ -32,6 +32,18 @@ class ArgumentDigest(BaseModel):
         )
 
 
+class InspectionSummary(BaseModel):
+    """One defense's inspection, without its evidence or any inspected content."""
+
+    model_config = ConfigDict(frozen=True)
+
+    defense_id: str
+    defense_version: str
+    status: str
+    finding_rule_ids: tuple[str, ...] = ()
+    detail: str | None = None
+
+
 class AuditRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -45,6 +57,7 @@ class DiscoveryRecord(AuditRecord):
     kind: Literal["discovery"] = "discovery"
     policy_version: str
     visible_tool_count: int
+    hidden_by_inspection: tuple[str, ...] = ()
 
 
 class DecisionRecord(AuditRecord):
@@ -58,6 +71,25 @@ class DecisionRecord(AuditRecord):
     reason: str
     policy_version: str
     arguments: ArgumentDigest
+    operation: str | None = None
+    inspections: tuple[InspectionSummary, ...] = ()
+
+
+class DeliveryRecord(AuditRecord):
+    """Whether a dispatched call's result was released to the agent.
+
+    A withheld result does not undo the call: it already ran upstream.
+    """
+
+    kind: Literal["delivery"] = "delivery"
+    correlation_id: str
+    tool_id: str
+    decision_id: str
+    outcome: str
+    rule_refs: tuple[str, ...]
+    reason: str
+    policy_version: str
+    inspections: tuple[InspectionSummary, ...] = ()
 
 
 class OutcomeRecord(AuditRecord):

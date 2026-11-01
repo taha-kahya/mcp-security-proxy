@@ -15,7 +15,7 @@ async def _run(config_path: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MCP security proxy (V2)")
+    parser = argparse.ArgumentParser(description="MCP security proxy")
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     asyncio.run(_run(args.config))

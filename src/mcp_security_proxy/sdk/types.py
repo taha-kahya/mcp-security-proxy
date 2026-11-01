@@ -25,5 +25,13 @@ class ToolId:
     server_id: str
     name: str
 
+    @classmethod
+    def parse(cls, text: str) -> ToolId:
+        """Parse the `server_id/name` form produced by `str()`."""
+        server_id, separator, name = text.partition("/")
+        if not separator or not server_id or not name or "/" in name:
+            raise ValueError(f"tool id must look like 'server_id/tool_name': {text!r}")
+        return cls(server_id=server_id, name=name)
+
     def __str__(self) -> str:
         return f"{self.server_id}/{self.name}"

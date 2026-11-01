@@ -7,89 +7,46 @@ No subprocesses: a fake upstream records whether it was ever called, so
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
 from mcp import types
 from mcp.shared.exceptions import MCPError
 
-from mcp_security_proxy.core.guard import Guard
 from mcp_security_proxy.core.proxy.codec.jsonrpc import unknown_tool_error
 from mcp_security_proxy.core.proxy.orchestrator import ProxyOrchestrator
 from mcp_security_proxy.core.proxy.routing.correlation import CorrelationTracker
-from mcp_security_proxy.core.proxy.routing.table import RoutingTable
 from mcp_security_proxy.sdk import Principal
 from mcp_security_proxy.services.log import (
-    AuditRecord,
-    AuditWriteError,
     DecisionRecord,
     OutcomeRecord,
 )
-from mcp_security_proxy.services.policy import parse_policy
+from tests.harness.control import build_proxy, routing_for
+from tests.harness.fakes import FakeUpstream, MemorySink
 
 ALICE = Principal(id="alice", authenticated_by="test")
 
 
-class FakeUpstream:
-    def __init__(self, behavior: Any = None) -> None:
-        self.calls: list[tuple[str, dict[str, Any] | None]] = []
-        self._behavior = behavior
-
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
-    ) -> types.CallToolResult:
-        self.calls.append((name, arguments))
-        if isinstance(self._behavior, BaseException):
-            raise self._behavior
-        if callable(self._behavior):
-            return await self._behavior()
-        return types.CallToolResult(content=[types.TextContent(text="ok")])
-
-
-class MemorySink:
-    def __init__(self) -> None:
-        self.records: list[AuditRecord] = []
-        self.failing = False
-
-    async def write(self, record: AuditRecord) -> None:
-        if self.failing:
-            raise AuditWriteError("disk full")
-        self.records.append(record)
-
-    def of_kind(self, kind: type[AuditRecord]) -> list[Any]:
-        return [r for r in self.records if isinstance(r, kind)]
-
-
-def _tool(name: str) -> types.Tool:
-    return types.Tool(name=name, inputSchema={"type": "object", "properties": {}})
+POLICY = {
+    "schema_version": 1,
+    "principals": {
+        "alice": [
+            {"tool": "server_a/read", "effect": "allow"},
+            {"tool": "server_a/send", "effect": "require_approval"},
+        ]
+    },
+}
 
 
 def _orchestrator(
     upstream: FakeUpstream, sink: MemorySink
 ) -> tuple[ProxyOrchestrator, CorrelationTracker]:
-    routing = RoutingTable()
-    routing.register_server_tools("server_a", [_tool("read"), _tool("send"), _tool("hidden")])
-    policy = parse_policy(
-        {
-            "schema_version": 1,
-            "principals": {
-                "alice": [
-                    {"tool": "server_a/read", "effect": "allow"},
-                    {"tool": "server_a/send", "effect": "require_approval"},
-                ]
-            },
-        }
-    )
-    correlation = CorrelationTracker()
-    orchestrator = ProxyOrchestrator(
-        routing=routing,
+    proxy = build_proxy(
+        routing=routing_for({"server_a": ["read", "send", "hidden"]}),
         upstreams={"server_a": upstream},
-        policy=policy,
-        guard=Guard(),
+        policy=POLICY,
         audit=sink,
-        correlation=correlation,
     )
-    return orchestrator, correlation
+    return proxy.orchestrator, proxy.correlation
 
 
 async def test_discovery_lists_only_tools_the_principal_may_discover() -> None:

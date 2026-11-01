@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from mcp_security_proxy.core.proxy.routing.correlation import (
-    CallStatus,
     CorrelationTracker,
     new_correlation_id,
 )
+from mcp_security_proxy.sdk import OperationStatus
 
 
 def test_begin_then_end_removes_from_in_flight() -> None:
@@ -15,7 +15,7 @@ def test_begin_then_end_removes_from_in_flight() -> None:
     tracker.begin(correlation_id, "server_a", "server_a__send_message")
     assert len(tracker.in_flight_for_server("server_a")) == 1
 
-    tracker.end(correlation_id, CallStatus.COMPLETED)
+    tracker.end(correlation_id, OperationStatus.COMPLETED)
     assert tracker.in_flight_for_server("server_a") == []
 
 
@@ -36,14 +36,14 @@ def test_mark_server_unknown_only_affects_that_server_and_clears_tracking() -> N
     affected = tracker.mark_server_unknown("server_a")
 
     assert len(affected) == 1
-    assert affected[0].status == CallStatus.UNKNOWN
+    assert affected[0].status == OperationStatus.UNKNOWN
     assert tracker.in_flight_for_server("server_a") == []
     assert len(tracker.in_flight_for_server("server_b")) == 1
 
 
 def test_end_on_unknown_correlation_id_is_a_no_op() -> None:
     tracker = CorrelationTracker()
-    tracker.end("does-not-exist", CallStatus.FAILED)  # must not raise
+    tracker.end("does-not-exist", OperationStatus.FAILED)  # must not raise
 
 
 def test_new_correlation_ids_are_unique() -> None:

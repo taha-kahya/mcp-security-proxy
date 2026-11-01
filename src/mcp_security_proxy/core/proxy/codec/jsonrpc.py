@@ -34,6 +34,22 @@ def audit_unavailable_error() -> MCPError:
     )
 
 
+def state_unavailable_error() -> MCPError:
+    return MCPError(
+        code=types.INTERNAL_ERROR,
+        message="Security state unavailable; the request was not processed",
+    )
+
+
+def withheld_result(reason: str, decision_id: str) -> types.CallToolResult:
+    """The call already ran upstream; only its result is withheld from the agent."""
+    message = (
+        f"Result withheld: {reason} (decision {decision_id}). "
+        "The call was executed; its result was not released."
+    )
+    return types.CallToolResult(content=[types.TextContent(text=message)], is_error=True)
+
+
 def blocked_call_result(reason: str, decision_id: str) -> types.CallToolResult:
     """A tool-level error for a call the agent may see but that was not dispatched."""
     message = f"Call blocked: {reason} (decision {decision_id})."

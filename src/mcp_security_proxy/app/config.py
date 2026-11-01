@@ -1,8 +1,9 @@
 """Proxy configuration schema and YAML loading.
 
-Relative paths (`policy_path`, `audit_log_path`) resolve against the working
-directory the proxy is started from, the same as the mock servers'
-`--audit-log` arguments.
+Relative paths (`policy_path`, `audit_log_path`, `tools_path`,
+`defenses_path`, `state.path`) resolve against the working directory the
+proxy is started from, the same as the mock servers' `--audit-log`
+arguments.
 """
 
 from __future__ import annotations
@@ -59,6 +60,19 @@ class IdentityConfig(BaseModel):
         return self
 
 
+class StateConfig(BaseModel):
+    """`memory` loses history on restart; `sqlite` keeps it in `path`."""
+
+    backend: Literal["memory", "sqlite"] = "memory"
+    path: Path | None = None
+
+    @model_validator(mode="after")
+    def _require_path_for_sqlite(self) -> StateConfig:
+        if self.backend == "sqlite" and self.path is None:
+            raise ValueError("state.path is required when state.backend is 'sqlite'")
+        return self
+
+
 class ProxyConfig(BaseModel):
     agent_transport: Transport = "stdio"
     agent_host: str = "127.0.0.1"
@@ -67,6 +81,10 @@ class ProxyConfig(BaseModel):
     policy_path: Path
     audit_log_path: Path
     servers: list[UpstreamServerConfig]
+    tools_path: Path | None = None
+    defenses_path: Path | None = None
+    defense_deadline_seconds: float = Field(default=2.0, gt=0)
+    state: StateConfig = Field(default_factory=StateConfig)
 
     @model_validator(mode="after")
     def _require_identity_for_agent_transport(self) -> ProxyConfig:

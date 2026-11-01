@@ -14,6 +14,7 @@ build/
 # Audit logs written by manual runs of the reference configs
 proxy_audit.jsonl
 server_*_audit.jsonl
+proxy_state.sqlite3
 
 # Documentation site build output (mkdocs build)
 site/

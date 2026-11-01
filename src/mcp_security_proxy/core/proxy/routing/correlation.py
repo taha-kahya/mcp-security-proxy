@@ -19,16 +19,10 @@ other in-flight calls against that server.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from time import monotonic
 from uuid import uuid4
 
-
-class CallStatus(StrEnum):
-    PENDING = "pending"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
+from mcp_security_proxy.sdk import OperationStatus
 
 
 @dataclass
@@ -37,7 +31,7 @@ class InFlightCall:
     server_id: str
     external_tool_name: str
     started_at: float
-    status: CallStatus = field(default=CallStatus.PENDING)
+    status: OperationStatus = field(default=OperationStatus.PENDING)
 
 
 def new_correlation_id() -> str:
@@ -56,7 +50,7 @@ class CorrelationTracker:
             started_at=monotonic(),
         )
 
-    def end(self, correlation_id: str, status: CallStatus) -> None:
+    def end(self, correlation_id: str, status: OperationStatus) -> None:
         call = self._in_flight.pop(correlation_id, None)
         if call is not None:
             call.status = status
@@ -67,6 +61,6 @@ class CorrelationTracker:
     def mark_server_unknown(self, server_id: str) -> list[InFlightCall]:
         affected = self.in_flight_for_server(server_id)
         for call in affected:
-            call.status = CallStatus.UNKNOWN
+            call.status = OperationStatus.UNKNOWN
             self._in_flight.pop(call.correlation_id, None)
         return affected

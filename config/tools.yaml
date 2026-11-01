@@ -1,0 +1,13 @@
+# What each tool does, as classified by the operator. Server-supplied names,
+# descriptions, and annotations are never used for this. Unlisted tools are
+# `unknown`.
+schema_version: 1
+tools:
+  server_a/read_record: {operation: read}
+  server_a/write_record: {operation: write}
+  server_a/send_message: {operation: send}
+  server_a/slow_write: {operation: write}
+  server_b/read_record: {operation: read}
+  server_b/write_record: {operation: write}
+  server_b/send_message: {operation: send}
+  server_b/slow_write: {operation: write}
