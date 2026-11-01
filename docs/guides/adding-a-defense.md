@@ -70,7 +70,11 @@ def create(settings: Mapping[str, Any]) -> MyCheck:
 **Choosing a stage.** Each stage sees a different event:
 
 - `discovery`: one tool definition (`event.payload` is the definition as
-  the server sent it).
+  the server sent it). The proxy reuses your result for the same task, tool
+  definition version and policy version, so decide from the definition
+  alone. If you declare `history` or `private_state`, results are not
+  reused and you run on every listing and call. A `failed` result is never
+  reused.
 - `before_execution`: a call's arguments (`event.payload["arguments"]`)
   and its operator-configured `event.action`.
 - `before_delivery`: a call's result (`event.content` holds typed blocks:

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DEADLINE_SECONDS = 2.0
 _INCOMPLETE = frozenset({InspectionStatus.FAILED, InspectionStatus.UNSUPPORTED})
+_STATEFUL = frozenset({Capability.HISTORY, Capability.PRIVATE_STATE})
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,13 @@ class Runner:
 
     def applies_to(self, stage: Stage) -> bool:
         return bool(self._plan.for_stage(stage))
+
+    def depends_only_on_event(self, stage: Stage) -> bool:
+        """No defense planned for `stage` reads History or its private state,
+        so the same event and policy always produce the same reports."""
+        return not any(
+            _STATEFUL & p.manifest.required_capabilities for p in self._plan.for_stage(stage)
+        )
 
     async def inspect(self, event: Event, scope: InspectionScope) -> tuple[InspectionReport, ...]:
         reports: list[InspectionReport] = []

@@ -28,6 +28,7 @@ from mcp_security_proxy.core.runner import InspectionReport, InspectionScope, Ru
 from mcp_security_proxy.sdk import (
     Action,
     Event,
+    InspectionStatus,
     OperationRecord,
     OperationStatus,
     Principal,
@@ -101,12 +102,14 @@ class ProxyControl:
         self._runner = runner
         self._guard = guard
         self._locks = locks or TaskLocks()
-        # Keyed by (task, tool, tool definition version, policy version): a
-        # discovery-stage inspection's result depends on nothing else, so a
+        # Keyed by (task, tool, tool definition version, policy version). A
         # repeat `discover`/`authorize_call` for the same combination (one
         # `tools/list` inspects every visible tool; a call re-checks its
         # tool's definition) is served from here instead of re-running the
         # Runner and re-committing a duplicate signal to this task's History.
+        # That is only sound while the result depends on nothing else, so
+        # see `_cacheable`. Entries are never evicted: they are bounded by
+        # the tool and policy versions seen in this process (ADR 0019).
         self._definition_cache: dict[
             tuple[TaskRef, ToolId, str, str], tuple[InspectionReport, ...]
         ] = {}
@@ -212,8 +215,18 @@ class ProxyControl:
         reports = await self._inspect(
             discovery_event(definition), principal, task, policy, definition
         )
-        self._definition_cache[key] = reports
+        if self._cacheable(reports):
+            self._definition_cache[key] = reports
         return reports
+
+    def _cacheable(self, reports: Iterable[InspectionReport]) -> bool:
+        """A failed inspection may be transient (a timeout, a raised error),
+        so caching it would keep the tool hidden until its definition or the
+        policy changes. A defense that reads History or private state may
+        decide differently later for the same definition."""
+        return self._runner.depends_only_on_event(Stage.DISCOVERY) and all(
+            r.status is not InspectionStatus.FAILED for r in reports
+        )
 
     async def _inspect(
         self,

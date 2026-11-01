@@ -157,6 +157,46 @@ async def test_discovery_inspection_is_committed_once_per_tool_version_and_polic
     assert len((await proxy.history.snapshot(ALICE_TASK)).signals) == 2
 
 
+async def test_a_failed_discovery_inspection_is_not_cached() -> None:
+    """One transient failure must not hide the tool until its definition or
+    the policy changes: the next listing inspects it again."""
+    attempts = 0
+
+    async def flaky(event: Event, context: Context) -> Result:
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise RuntimeError("transient")
+        return Result.completed()
+
+    discovery = ScriptedDefense("direct", flaky, stages=frozenset({Stage.DISCOVERY}))
+    proxy = _proxy(FakeUpstream(), MemorySink(), discovery)
+
+    assert await proxy.orchestrator.list_tools(ALICE) == []
+    listed = await proxy.orchestrator.list_tools(ALICE)
+    assert sorted(t.name for t in listed) == ["server_a__read", "server_a__write"]
+    await proxy.orchestrator.list_tools(ALICE)
+    assert attempts == 4  # two failures, then one completed run per tool, cached
+
+
+async def test_discovery_defenses_that_read_history_are_not_cached() -> None:
+    async def reads_history(event: Event, context: Context) -> Result:
+        context.history  # noqa: B018 - declared and used, so results may change
+        return Result.completed()
+
+    discovery = ScriptedDefense(
+        "direct",
+        reads_history,
+        stages=frozenset({Stage.DISCOVERY}),
+        capabilities=frozenset({Capability.HISTORY}),
+    )
+    proxy = _proxy(FakeUpstream(), MemorySink(), discovery)
+
+    await proxy.orchestrator.list_tools(ALICE)
+    await proxy.orchestrator.list_tools(ALICE)
+    assert len(discovery.seen_events) == 4
+
+
 async def test_delivery_finding_withholds_the_result_but_reports_that_the_call_ran() -> None:
     upstream, sink = FakeUpstream(), MemorySink()
     delivery = ScriptedDefense(

@@ -15,12 +15,24 @@ produced it.
 - **Discovery** (`Stage.DISCOVERY`): one event per tool the principal's
   policy lets it discover, with the upstream definition as the payload.
   If Guard's review is not `allow`, the tool is left out of `tools/list` and
-  listed in the discovery record's `hidden_by_inspection`.
+  listed in the discovery record's `hidden_by_inspection`. This binary
+  visible-or-hidden outcome is the V3 behavior. Finer exposure outcomes,
+  such as exposing a tool with a flagged field redacted and requiring
+  approval for its calls, are decided in their own ADR.
 - **Definitions gate calls too.** `tools/call` re-runs the same definition
   check first. A tool hidden by inspection answers exactly like a
   nonexistent tool (as in 0012), so it can't be called by guessing its name.
-  This costs one discovery inspection per call; caching by tool and policy
-  version can come when a definition check is expensive.
+- **Discovery results are cached** per (task, tool, definition version,
+  policy version), so a repeat listing or a call does not re-run the
+  defenses or commit their signals again. Two exceptions keep the cache
+  sound: a result with any `failed` report is not cached, since the failure
+  may be transient and would otherwise hide the tool until its definition
+  or the policy changes; and nothing is cached while a discovery-stage
+  defense declares `history` or `private_state`, since its result may then
+  change for the same definition. Entries are not evicted. They are bounded
+  by the definition and policy versions one process sees, and the execution
+  plan is fixed for the process lifetime, so defense versions need no place
+  in the key until hot reload exists.
 - **Execution** (`Stage.BEFORE_EXECUTION`): the payload holds the bare name
   and arguments, and `action` is Registry's operator-configured `Action`.
   Execution inspections run only for tools whose definition passed.
