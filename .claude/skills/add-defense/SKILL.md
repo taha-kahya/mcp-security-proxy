@@ -41,7 +41,7 @@ and write a different one.
 Use only `mcp_security_proxy.sdk` (and third-party libraries). If the check
 needs something no capability provides, **stop and tell the user**. Never
 import core or services, and never add a workaround inside the defense.
-ADR 0020 lists the planned V4 capabilities, each delivered as its own MR:
+ADR 0021 lists the planned V4 capabilities, each delivered as its own MR:
 
 - Scan (`instructions`, `secrets`, sensitivity)
 - argument-aware tool adapters (`resource`, `destination`, `sensitivity`)
@@ -54,7 +54,7 @@ be partly merged.
 
 **Model-based checks belong to Scan.** A defense has no I/O and a 2 s
 deadline, so a classifier, an embedding model or a semantic check can't run
-inside it. Those are the job of the Scan capability (ADR 0020, MR 1), which
+inside it. Those are the job of the Scan capability (ADR 0021, MR 1), which
 the defense calls. If Scan hasn't merged and the check needs it, stop and
 tell the user rather than building a model into the defense or settling for
 weaker patterns without saying so.
@@ -186,6 +186,6 @@ never change the test.
 
 - One defense, or one tightly related rule set, per MR. No core, SDK, or
   other-category changes in the same MR. Capability changes are their own
-  MR (ADR 0020).
+  MR (ADR 0021).
 - In the MR description, list the attacks covered, the benign twins, what's
   deliberately not covered, and any new signal types.
