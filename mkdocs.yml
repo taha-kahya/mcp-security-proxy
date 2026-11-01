@@ -63,6 +63,8 @@ nav:
       - architecture.md
       - design/request-lifecycle-and-control.md
       - design/tool-identity-and-routing.md
+      - design/discovery-lifecycle.md
+      - design/direct-metadata-defenses.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
@@ -80,6 +82,7 @@ nav:
       - decisions/0013-audit-records-masking-and-fail-closed.md
       - decisions/0014-http-listener-exposure-and-token-strength.md
       - decisions/0015-dependency-provenance-mcp-and-httpx2.md
+      - decisions/0016-direct-metadata-defense-defaults.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 
