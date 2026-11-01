@@ -10,6 +10,7 @@ silently dropped. Cancellation of the request itself still propagates.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 
 import anyio
@@ -115,6 +116,25 @@ def validated(manifest: Manifest, result: object) -> Result:
             return Result.failed(
                 f"finding {finding.rule_id!r} has severity {finding.severity!r}, not a Severity"
             )
-    if result.state_changes and Capability.PRIVATE_STATE not in manifest.required_capabilities:
-        return Result.failed("proposed state changes without declaring private_state")
+        # Enforcement maps findings by rule id alone, so a rule id outside the
+        # defense's own namespace would receive another defense's enforcement.
+        if not owns_rule_id(manifest.id, finding.rule_id):
+            return Result.failed(
+                f"finding rule id {finding.rule_id!r} is not {manifest.id!r} "
+                f"and does not start with {manifest.id + '.'!r}"
+            )
+    if result.state_changes:
+        if Capability.PRIVATE_STATE not in manifest.required_capabilities:
+            return Result.failed("proposed state changes without declaring private_state")
+        # Two changes to one key cannot both be based on the stored version,
+        # so State refuses the batch; report it here as this defense's failure.
+        keys = Counter(change.key for change in result.state_changes)
+        repeated = sorted(key for key, count in keys.items() if count > 1)
+        if repeated:
+            return Result.failed(f"proposed more than one change for keys {repeated}")
     return result
+
+
+def owns_rule_id(defense_id: str, rule_id: str) -> bool:
+    """A defense's rule ids are its id or start with its id and a dot."""
+    return rule_id == defense_id or rule_id.startswith(f"{defense_id}.")

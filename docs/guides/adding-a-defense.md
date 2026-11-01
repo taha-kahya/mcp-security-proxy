@@ -98,7 +98,12 @@ runs producers first and passes their signals in `context.signals`.
 **Private state.** Read `context.private_state.get(key)` and propose
 `StateChange(key, expected_version=current.version, value=...)` in a
 completed result. The core commits it after the inspection. You never
-write directly.
+write directly. Propose at most one change per key in a result; two
+changes to the same key fail the inspection.
+
+**Rule ids** are your defense id or start with it and a dot, such as
+`my_check.too_many`. A finding with any other rule id fails the inspection,
+so one defense can't receive another's enforcement.
 
 ## 2. Test it without the proxy
 

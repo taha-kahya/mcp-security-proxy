@@ -84,8 +84,9 @@ and tuples (`sdk.freeze`).
 - **Result** — `status` (`completed` | `not_applicable` | `unsupported` |
   `failed`), `findings`, `signals`, `state_changes`, `detail`. Only
   `completed` may carry output.
-- **Finding** — `rule_id`, `category`, `severity`, `reason`,
-  `evidence_refs`. **Signal** — `type`, `schema_version`, `producer`
+- **Finding** — `rule_id` (the defense id, or the defense id followed by
+  `.`; anything else fails the inspection), `category`, `severity`,
+  `reason`, `evidence_refs`. **Signal** — `type`, `schema_version`, `producer`
   (must equal the defense id), `value`, `evidence_refs`.
 - **Action** — `operation` (`read` | `write` | `send` | `execute` |
   `unknown`), `adapter_id`, `adapter_version`, `resource?`, `destination?`,
@@ -156,8 +157,9 @@ tools:
 # policy file, optional section; unset values are block
 enforcement:
   by_severity: {low: allow, medium: require_approval, high: block, critical: block}
-  # A rule id must start with "<defense_id>." (checked at load), so two
-  # defenses' findings can't collide under the same enforcement entry.
+  # A rule id must start with "<defense_id>." (checked at load for these
+  # keys, and by the Runner for every emitted finding), so two defenses'
+  # findings can't collide under the same enforcement entry.
   findings: {call_budget.exceeded: block}
   on_failure: block
   on_unsupported: block

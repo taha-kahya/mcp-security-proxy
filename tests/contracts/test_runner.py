@@ -26,6 +26,7 @@ from mcp_security_proxy.sdk import (
     HistorySnapshot,
     InspectionStatus,
     Result,
+    Severity,
     Signal,
     Stage,
     StateChange,
@@ -255,6 +256,48 @@ async def test_state_changes_without_declaring_private_state_fail_the_inspection
     results = await _inspect(_runner(ScriptedDefense("proposes", proposes)))
     assert results["proposes"].status is InspectionStatus.FAILED
     assert results["proposes"].detail == "proposed state changes without declaring private_state"
+
+
+async def test_a_finding_outside_the_defense_namespace_fails_the_inspection() -> None:
+    async def borrows(event: Event, context: Context) -> Result:
+        return Result.completed([Finding("other.rule", "test", Severity.HIGH, "test finding")])
+
+    async def lookalike(event: Event, context: Context) -> Result:
+        return Result.completed([Finding("ownsx.rule", "test", Severity.HIGH, "test finding")])
+
+    async def own(event: Event, context: Context) -> Result:
+        return Result.completed(
+            [
+                Finding("own", "test", Severity.LOW, "test finding"),
+                Finding("own.rule", "test", Severity.LOW, "test finding"),
+            ]
+        )
+
+    results = await _inspect(
+        _runner(
+            ScriptedDefense("borrows", borrows),
+            ScriptedDefense("owns", lookalike),
+            ScriptedDefense("own", own),
+        )
+    )
+    assert results["borrows"].status is InspectionStatus.FAILED
+    assert results["borrows"].detail == (
+        "finding rule id 'other.rule' is not 'borrows' and does not start with 'borrows.'"
+    )
+    assert results["owns"].status is InspectionStatus.FAILED
+    assert results["own"].status is InspectionStatus.COMPLETED
+
+
+async def test_two_changes_to_one_key_fail_the_inspection() -> None:
+    async def repeats(event: Event, context: Context) -> Result:
+        return Result.completed(state_changes=[StateChange("k", 0, 1), StateChange("k", 0, 2)])
+
+    defense = ScriptedDefense(
+        "repeats", repeats, capabilities=frozenset({Capability.PRIVATE_STATE})
+    )
+    results = await _inspect(_runner(defense))
+    assert results["repeats"].status is InspectionStatus.FAILED
+    assert results["repeats"].detail == "proposed more than one change for keys ['k']"
 
 
 async def test_context_carries_trusted_scope_and_own_private_state() -> None:
