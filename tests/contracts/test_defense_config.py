@@ -87,6 +87,23 @@ def test_only_enabled_defenses_are_loaded_and_their_enforcement_versions_policy(
     assert with_override.policy.version != without.policy.version
 
 
+def test_a_policy_key_for_a_disabled_defense_does_not_stop_startup(tmp_path: Path) -> None:
+    defenses_dir = tmp_path / "defenses"
+    defenses_dir.mkdir()
+    _write(defenses_dir / "budget.yaml", {"id": "budget", "enabled": False})
+    config = _config(tmp_path, defenses_dir)
+    _write(
+        config.policy_path,
+        {
+            "schema_version": 1,
+            "principals": {},
+            "enforcement": {"findings": {"budget.exceeded": "block"}},
+        },
+    )
+
+    assert load_security(config, StaticCatalog({})).plan.defense_ids() == []
+
+
 def test_enabled_defense_that_is_not_installed_stops_startup(tmp_path: Path) -> None:
     defenses_dir = tmp_path / "defenses"
     defenses_dir.mkdir()

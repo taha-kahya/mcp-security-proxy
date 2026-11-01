@@ -97,3 +97,14 @@ def test_the_policy_files_findings_key_must_start_with_a_known_defense_id() -> N
         BASE | {"enforcement": {"findings": {"budget.exceeded": "block"}}},
         defense_ids=["budget"],
     )
+
+
+def test_a_policy_key_for_a_disabled_defense_only_warns(caplog: pytest.LogCaptureFixture) -> None:
+    """Turning a defense off must not also require editing the policy file."""
+    enforcement = {"enforcement": {"findings": {"budget.exceeded": "block"}}}
+    with caplog.at_level("WARNING"):
+        parse_policy(BASE | enforcement, disabled_defense_ids=["budget"])
+    assert "belongs to a disabled defense" in caplog.text
+
+    with pytest.raises(PolicyError, match="does not start with any enabled defense's id"):
+        parse_policy(BASE | enforcement, disabled_defense_ids=["other"])

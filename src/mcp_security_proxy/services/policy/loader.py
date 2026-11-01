@@ -9,6 +9,7 @@ while any change in meaning produces a new one.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from collections.abc import Set as AbstractSet
@@ -22,6 +23,8 @@ from mcp_security_proxy.sdk import canonical_digest
 from mcp_security_proxy.services.policy.enforcement import EnforcementEntry, EnforcementPolicy
 from mcp_security_proxy.services.policy.rules import Effect, ToolPattern, ToolRule
 from mcp_security_proxy.services.policy.snapshot import PolicySnapshot
+
+logger = logging.getLogger(__name__)
 
 
 class PolicyError(ValueError):
@@ -70,12 +73,16 @@ def parse_policy(
     data: object,
     enforcement_overrides: Mapping[str, object] | None = None,
     defense_ids: Iterable[str] = (),
+    disabled_defense_ids: Iterable[str] = (),
 ) -> PolicySnapshot:
     """`enforcement_overrides` maps a defense id to its config's `enforcement`.
 
     `defense_ids` is every enabled defense's id, for checking that a
     `findings` rule id is prefixed with the defense it belongs to (below);
     it may be a superset of `enforcement_overrides`'s keys.
+    `disabled_defense_ids` names defenses that are known but turned off: a
+    policy key for one of them only logs a warning, so turning a defense off
+    does not also require editing the policy file.
     """
     try:
         document = _PolicyDocument.model_validate(data)
@@ -87,7 +94,10 @@ def parse_policy(
         raise PolicyError(f"invalid policy: {exc}") from exc
 
     _check_rule_id_prefixes(
-        document.enforcement, overrides, frozenset(defense_ids) | overrides.keys()
+        document.enforcement,
+        overrides,
+        frozenset(defense_ids) | overrides.keys(),
+        frozenset(disabled_defense_ids),
     )
 
     version = canonical_digest(
@@ -104,6 +114,7 @@ def _check_rule_id_prefixes(
     defaults: EnforcementEntry | None,
     overrides: Mapping[str, EnforcementEntry],
     known_defense_ids: AbstractSet[str],
+    disabled_defense_ids: AbstractSet[str] = frozenset(),
 ) -> None:
     """A `findings` rule id not prefixed with its owning defense's id can
     collide with another defense's rule id of the same name: both would get
@@ -111,26 +122,39 @@ def _check_rule_id_prefixes(
     """
     for defense_id, entry in overrides.items():
         for rule_id in entry.findings:
-            if rule_id != defense_id and not rule_id.startswith(f"{defense_id}."):
+            if not _owned_by(rule_id, {defense_id}):
                 raise PolicyError(
                     f"{defense_id}'s enforcement.findings key {rule_id!r} "
                     f"must be {defense_id!r} or start with {defense_id + '.'!r}"
                 )
     for rule_id in defaults.findings if defaults is not None else {}:
-        if not any(rule_id == d or rule_id.startswith(f"{d}.") for d in known_defense_ids):
-            raise PolicyError(
-                f"policy enforcement.findings key {rule_id!r} does not start with "
-                "any enabled defense's id"
+        if _owned_by(rule_id, known_defense_ids):
+            continue
+        if _owned_by(rule_id, disabled_defense_ids):
+            logger.warning(
+                "policy enforcement.findings key %r belongs to a disabled defense; "
+                "it has no effect until that defense is enabled",
+                rule_id,
             )
+            continue
+        raise PolicyError(
+            f"policy enforcement.findings key {rule_id!r} does not start with "
+            "any enabled defense's id"
+        )
+
+
+def _owned_by(rule_id: str, defense_ids: AbstractSet[str]) -> bool:
+    return any(rule_id == d or rule_id.startswith(f"{d}.") for d in defense_ids)
 
 
 def load_policy(
     path: Path,
     enforcement_overrides: Mapping[str, object] | None = None,
     defense_ids: Iterable[str] = (),
+    disabled_defense_ids: Iterable[str] = (),
 ) -> PolicySnapshot:
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as exc:
         raise PolicyError(f"cannot read policy file {path}: {exc}") from exc
-    return parse_policy(data, enforcement_overrides, defense_ids)
+    return parse_policy(data, enforcement_overrides, defense_ids, disabled_defense_ids)

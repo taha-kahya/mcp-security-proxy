@@ -56,9 +56,17 @@ class SecuritySetup:
 
 
 def load_security(config: ProxyConfig, catalog: DefenseCatalog) -> SecuritySetup:
-    enabled = [c for c in load_defense_configs(config.defenses_path) if c.enabled]
+    configs = load_defense_configs(config.defenses_path)
+    enabled = [c for c in configs if c.enabled]
     overrides = {c.id: c.enforcement for c in enabled if c.enforcement is not None}
-    policy = load_policy(config.policy_path, overrides, defense_ids=(c.id for c in enabled))
+    enabled_ids = {c.id for c in enabled}
+    known_ids = {c.id for c in configs} | set(catalog.names())
+    policy = load_policy(
+        config.policy_path,
+        overrides,
+        defense_ids=enabled_ids,
+        disabled_defense_ids=known_ids - enabled_ids,
+    )
     _warn_about_loosened_enforcement(policy)
     plan = build_plan(
         [DefenseSpec(c.id, c.settings) for c in enabled], catalog, AVAILABLE_CAPABILITIES
