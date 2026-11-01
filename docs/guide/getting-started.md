@@ -51,6 +51,8 @@ There are two reference configurations. Each runs the client side, the proxy and
 
 The proxy appends its audit log to `proxy_audit.jsonl` in the working directory. Each mock server writes the calls it actually received to `server_a_audit.jsonl` and `server_b_audit.jsonl`, an independent record of what reached the servers.
 
+Both configurations also keep each task's History in `proxy_state.sqlite3`, which survives restarts. Only one proxy process may use a given state file; a second one refuses to start. For a fresh History, stop the proxy and delete the file, or set `state: {backend: memory}` in the configuration.
+
 ## Connect a client
 
 Most MCP hosts accept a server entry with a command and arguments. For the stdio configuration, point the entry at the proxy, with the repository as the working directory:
@@ -88,8 +90,25 @@ principals:
     - tool: server_b/send_message       # listed, refused until Approval (V5)
       effect: require_approval
     # server_b/slow_write is not listed, so it is hidden
+enforcement:                            # what defense reports mean; unset is block
+  by_severity: {low: allow, medium: require_approval, high: block, critical: block}
+  on_failure: block
+  on_unsupported: block
 ```
 
 Each rule names a tool as `server_id/tool_name` or `server_id/*` and an effect, `allow` or `require_approval`. An exact rule overrides a wildcard for the same server. Restart the proxy after a change.
 
 The proxy refuses to start if the file is invalid or a rule matches no tool. It starts with a warning if a policy principal has no configured identity, or a configured principal has no rules (it is denied every tool). The full model is in [ADR 0010](../decisions/0010-policy-model-and-default-deny.md).
+
+The `enforcement` section decides what defense reports lead to: `by_severity` maps a finding's severity to an outcome, `findings` can set one for a specific rule ID, and `on_failure` and `on_unsupported` cover inspections that did not complete. Anything unset blocks ([ADR 0018](../decisions/0018-enforcement-defaults-and-defense-overrides.md)).
+
+## Enable a defense
+
+Two more files configure inspection:
+
+- `config/tools.yaml` says what each tool does (`read`, `write`, `send` or `execute`). Defenses read this from the Registry; the server's own names and descriptions are never used for it. A tool that is not listed is `unknown`.
+- `config/defenses/` holds one file per installed defense, with `enabled`, its settings and optional enforcement overrides.
+
+The sample defense, `call_budget`, caps side-effecting calls per task. It is disabled in `config/defenses/call_budget.yaml` because its count never resets and History persists, so leaving it on would permanently block `local-agent` after 50 calls. To try it, delete `proxy_state.sqlite3` if you have already made calls, set `enabled: true` and restart the proxy.
+
+To write your own, follow [Adding a defense](../guides/adding-a-defense.md).

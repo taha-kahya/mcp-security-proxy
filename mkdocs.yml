@@ -59,12 +59,14 @@ nav:
       - How it works: guide/how-it-works.md
       - Getting started: guide/getting-started.md
       - Roadmap: guide/roadmap.md
+      - Adding a defense: guides/adding-a-defense.md
   - Architecture:
       - architecture.md
       - design/request-lifecycle-and-control.md
       - design/tool-identity-and-routing.md
       - design/discovery-lifecycle.md
       - design/direct-metadata-defenses.md
+      - design/defense-sdk-and-runner.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
@@ -83,6 +85,11 @@ nav:
       - decisions/0014-http-listener-exposure-and-token-strength.md
       - decisions/0015-dependency-provenance-mcp-and-httpx2.md
       - decisions/0016-direct-metadata-defense-defaults.md
+      - decisions/0017-task-boundary-and-state-backends.md
+      - decisions/0018-enforcement-defaults-and-defense-overrides.md
+      - decisions/0019-defense-extension-mechanism.md
+      - decisions/0020-inspection-stages-and-delivery-semantics.md
+      - decisions/0021-v4-capability-first-delivery.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 
