@@ -27,6 +27,15 @@ with a concrete malicious example and its benign twin:
 | Settings | What an operator tunes, with safe defaults |
 | What it does **not** cover | So it is stated in the module docstring |
 
+**Keep the evaluation held out.** The experiments in the research repository
+are the held-out evaluation of these defenses, so a defense must be designed
+without them. Never take examples, rules, patterns, thresholds or test cases
+from those experiments: not their poisoned tool, server or prompt texts,
+their system prompts, their fixtures, or their results. Write attack cases
+from the attack taxonomy and public descriptions of the attacks instead. If
+the user offers an example from the experiments, say why it can't be used
+and write a different one.
+
 ## 2. Check the SDK is enough
 
 Use only `mcp_security_proxy.sdk` (and third-party libraries). If the check
@@ -43,6 +52,13 @@ ADR 0020 lists the planned V4 capabilities, each delivered as its own MR:
 Check `src/mcp_security_proxy/sdk/` for what exists now; the list above may
 be partly merged.
 
+**Model-based checks belong to Scan.** A defense has no I/O and a 2 s
+deadline, so a classifier, an embedding model or a semantic check can't run
+inside it. Those are the job of the Scan capability (ADR 0020, MR 1), which
+the defense calls. If Scan hasn't merged and the check needs it, stop and
+tell the user rather than building a model into the defense or settling for
+weaker patterns without saying so.
+
 **Signals are cross-team contracts.** Reuse an existing signal type if one
 fits. A new type needs agreement from the owners of the producer and
 consumer, recorded in the decisions. A consumer must still work when the
@@ -57,8 +73,13 @@ Use the templates in [templates.md](templates.md). Naming:
   `environment`, `samples`. Create `<category>/__init__.py` if it's missing.
 - Defense id: `<category>_<name>`. It must be unique and snake_case, and it
   must equal the entry-point name.
-- Rule ids: `<defense_id>.<rule>`.
+- Rule ids: `<defense_id>.<rule>`. The Runner fails any finding whose rule
+  id doesn't start with the defense id, so collisions can't happen silently.
 - `Finding.category`: the category name.
+
+The sample `call_budget` (id `call_budget`, category `"sample"`) predates
+these conventions and exists only to test the extension mechanism. Follow
+the conventions above, not its names.
 
 Files:
 
@@ -80,14 +101,20 @@ Then run `uv sync` so the entry point is installed.
 - `not_applicable()` means the event isn't one this defense checks.
 - `unsupported("<content kind>")` means you can't inspect this content (for
   example, an image). It blocks by default. Never use it to mean "fine".
+  At `before_delivery`, check every block's type before inspecting, as the
+  template's skeleton does: one uninspected block makes the event
+  `unsupported`, not `completed`.
 - Never catch broad exceptions to return `completed`. Let them propagate;
   the Runner reports them as `failed`.
 
 **Keep output free of inspected content:**
 - `detail`, `reason`, and `evidence_refs` must not quote the content you
   inspected, so a secret never lands in logs.
-- Use positions or field names instead (`"description[120:180]"`,
-  `"arguments.url"`).
+- Use JSON Pointers to the exact field instead, for nested fields too:
+  `/description`, `/inputSchema/properties/path/description`,
+  `/arguments/url`, `/content/0/text`. Add a range when it helps
+  (`/description#120-180`). A precise pointer also lets the proxy act on just
+  that field later, such as redacting it.
 
 **Stay pure and fast:**
 - The result depends only on the event, the context, and the settings: no
@@ -108,8 +135,10 @@ Then run `uv sync` so the entry point is installed.
 
 ## 5. Tests (required matrix)
 
-Tests use only `mcp_security_proxy.sdk.testing`: no proxy, no servers. Each
-rule needs:
+Tests use only `mcp_security_proxy.sdk.testing`: no proxy, no servers. As
+in step 1, cases come from the attack taxonomy and public descriptions,
+never from the evaluation experiments. The test template has one test per
+row below. Each rule needs:
 
 - [ ] each malicious case → the expected `rule_id`
 - [ ] **its matched benign twin** → `completed` with no findings
@@ -120,6 +149,11 @@ rule needs:
 - [ ] invalid settings → `ValueError`
 - [ ] produced signals carry `producer=DEFENSE_ID` and are declared in the
       manifest
+- [ ] every rule id starts with `DEFENSE_ID + "."`
+
+Build events the way the proxy does: discovery events have
+`method="tools/list"` (the template's `_event` helper sets it), so a
+defense that checks the method behaves the same in tests and in production.
 
 Prefer `pytest.mark.parametrize` tables of `(case, expected)`, so new
 attack variants are one line each.
