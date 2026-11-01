@@ -1,7 +1,10 @@
 """Content-addressed versions: a digest of a value's canonical JSON form.
 
 Key order and formatting do not change the digest; any change in content
-does. Used for policy, tool-definition, and tool-semantics versions.
+does. Used for policy, tool-definition, and tool-semantics versions. The
+value must be JSON-serializable: anything else raises `TypeError` rather
+than being stringified, since a `str()` of an arbitrary object can be
+unstable or collide with another value's.
 """
 
 from __future__ import annotations
@@ -14,5 +17,5 @@ from mcp_security_proxy.sdk.frozen import thaw
 
 
 def canonical_digest(value: Any) -> str:
-    canonical = json.dumps(thaw(value), sort_keys=True, separators=(",", ":"), default=str)
+    canonical = json.dumps(thaw(value), sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()

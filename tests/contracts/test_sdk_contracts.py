@@ -20,6 +20,7 @@ from mcp_security_proxy.sdk import (
     Signal,
     Stage,
     VersionedValue,
+    canonical_digest,
     freeze,
     thaw,
 )
@@ -121,3 +122,9 @@ def test_private_state_reports_missing_keys_as_version_zero() -> None:
     state = PrivateState({"seen": VersionedValue(3, ["x"])})
     assert state.get("seen").version == 3 and state.get("seen").exists
     assert state.get("missing").version == 0 and not state.get("missing").exists
+
+
+def test_canonical_digest_rejects_values_that_are_not_json() -> None:
+    assert canonical_digest({"b": 1, "a": [1, 2]}) == canonical_digest({"a": [1, 2], "b": 1})
+    with pytest.raises(TypeError):
+        canonical_digest({"value": object()})
