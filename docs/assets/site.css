@@ -1,0 +1,5 @@
+.md-grid { max-width: 1440px; }
+.md-typeset .diagram { margin: 1.5em 0; overflow-x: auto; }
+.md-typeset .diagram svg { display: block; margin: 0 auto; min-width: 640px; }
+.md-typeset table:not([class]) { font-size: .72rem; }
+.md-typeset table:not([class]) th { white-space: nowrap; }

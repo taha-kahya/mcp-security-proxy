@@ -15,3 +15,6 @@ build/
 proxy_audit.jsonl
 server_*_audit.jsonl
 proxy_state.sqlite3
+
+# Documentation site build output (mkdocs build)
+site/

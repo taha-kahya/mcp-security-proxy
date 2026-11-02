@@ -2,6 +2,9 @@
 
 A proxy tool that stands between a client and MCP servers, providing transparency and security.
 
+Documentation: <https://taha-kahya.github.io/mcp-security-proxy/>, built from
+[`docs/`](docs/) by [`mkdocs.yml`](mkdocs.yml).
+
 See [`docs/architecture.md`](docs/architecture.md) for the overall design and the
 V1-V5 phased build plan. See [`docs/decisions/`](docs/decisions/README.md) for why
 specific implementation choices were made,
