@@ -16,8 +16,17 @@ from mcp_security_proxy.core.proxy.codec.jsonrpc import unauthenticated_error
 from mcp_security_proxy.core.proxy.orchestrator import ProxyOrchestrator
 from mcp_security_proxy.sdk import Principal
 
+_NAME = "mcp-security-proxy"
 
-def build_proxy_server(orchestrator: ProxyOrchestrator, identity: IdentityResolver) -> Server:
+
+def build_proxy_server(
+    orchestrator: ProxyOrchestrator,
+    identity: IdentityResolver,
+    server_info: types.Implementation | None = None,
+) -> Server:
+    """`server_info` is the upstream's identity in transparent mode; otherwise
+    the proxy reports its own fixed name."""
+
     def principal_of(ctx: ServerRequestContext[object, object]) -> Principal:
         try:
             return identity.resolve(ctx.request)
@@ -34,10 +43,14 @@ def build_proxy_server(orchestrator: ProxyOrchestrator, identity: IdentityResolv
         ctx: ServerRequestContext[object, object],
         params: types.CallToolRequestParams,
     ) -> types.CallToolResult:
-        return await orchestrator.call_tool(principal_of(ctx), params.name, params.arguments or {})
+        return await orchestrator.call_tool(
+            principal_of(ctx), params.name, params.arguments or {}, params.meta
+        )
 
+    name, version = (server_info.name, server_info.version) if server_info else (_NAME, "")
     return Server(
-        name="mcp-security-proxy",
+        name=name,
+        version=version,
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )

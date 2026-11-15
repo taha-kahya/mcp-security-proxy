@@ -4,7 +4,9 @@ Built once at proxy startup from each upstream server's own `list_tools`
 result (V1 does not yet re-discover per request; that belongs to a later,
 Registry-aware phase). Keeps each upstream `Tool` definition's metadata
 intact and only overrides `name` with the disambiguated external name, to
-preserve structure rather than reconstructing tools from scratch.
+preserve structure rather than reconstructing tools from scratch. In
+transparent mode (0023) the external name is the bare name, which is
+unambiguous because exactly one upstream is configured.
 """
 
 from __future__ import annotations
@@ -34,12 +36,13 @@ class RoutedTool:
 
 
 class RoutingTable:
-    def __init__(self) -> None:
+    def __init__(self, *, transparent: bool = False) -> None:
+        self._transparent = transparent
         self._by_external_name: dict[str, RoutedTool] = {}
 
     def register_server_tools(self, server_id: str, tools: list[types.Tool]) -> None:
         for tool in tools:
-            name = external_tool_name(server_id, tool.name)
+            name = tool.name if self._transparent else external_tool_name(server_id, tool.name)
             if name in self._by_external_name:
                 raise ValueError(f"duplicate external tool name: {name!r}")
             self._by_external_name[name] = RoutedTool(server_id, tool.name, name, tool)

@@ -1,0 +1,19 @@
+# Pass-through profile: transparent mode in front of one upstream server, no
+# defenses, and a policy that allows its tools (see docs/guides/transparent-mode.md).
+# Reference config for manual runs. Replace the server entry with the server
+# under evaluation; keep exactly one.
+transparent: true
+agent_transport: stdio
+identity:
+  stdio_principal: local-agent
+policy_path: config/policies/transparent.yaml
+audit_log_path: proxy_audit.jsonl
+# Request `_meta` keys whose string, number, or boolean values the audit record
+# keeps unmasked. Every other `_meta` value is recorded as a digest and key
+# names only. Empty by default.
+audit_meta_allowlist: []
+# No `defenses_path`: nothing inspects definitions, calls, or results.
+servers:
+  - id: server_a
+    command: python
+    args: ["-m", "fixtures.mock_servers.server_a", "--audit-log", "server_a_audit.jsonl"]

@@ -1,0 +1,8 @@
+# Pass-through policy for config/config.transparent.yaml: the principal may
+# discover and call every tool of the one upstream server. Match the server id
+# in the config when you replace the server.
+schema_version: 1
+principals:
+  local-agent:
+    - tool: server_a/*
+      effect: allow

@@ -11,7 +11,7 @@ modules that do, and it is the only place that dispatches upstream.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Protocol
 
@@ -53,7 +53,11 @@ class ToolCaller(Protocol):
     """The one upstream capability the orchestrator needs (`ClientSession` satisfies it)."""
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        meta: types.RequestParamsMeta | None = None,
     ) -> types.CallToolResult: ...
 
 
@@ -66,12 +70,18 @@ class ProxyOrchestrator:
         control: ProxyControl,
         audit: AuditSink,
         correlation: CorrelationTracker,
+        forward_meta: bool = False,
+        unmasked_meta_keys: Collection[str] = (),
     ) -> None:
         self._routing = routing
         self._upstreams = upstreams
         self._control = control
         self._audit = audit
         self._correlation = correlation
+        # `_meta` is opaque: it is forwarded and recorded, never consulted by
+        # identity, policy, or any defense (0011). Off outside transparent mode.
+        self._forward_meta = forward_meta
+        self._unmasked_meta_keys = frozenset(unmasked_meta_keys)
 
     async def list_tools(self, principal: Principal) -> list[types.Tool]:
         with _state_required():
@@ -81,8 +91,13 @@ class ProxyOrchestrator:
         return [routed.external_tool() for routed in discovery.visible]
 
     async def call_tool(
-        self, principal: Principal, external_name: str, arguments: dict[str, Any]
+        self,
+        principal: Principal,
+        external_name: str,
+        arguments: dict[str, Any],
+        meta: types.RequestParamsMeta | None = None,
     ) -> types.CallToolResult:
+        meta = meta if self._forward_meta else None
         routed = self._routing.find(external_name)
         with _state_required():
             async with self._control.serialized(principal):
@@ -90,13 +105,15 @@ class ProxyOrchestrator:
                     principal, routed, arguments, new_correlation_id()
                 )
                 await self._record_or_refuse(
-                    decision_record(authorization, external_name, arguments)
+                    decision_record(
+                        authorization, external_name, arguments, meta, self._unmasked_meta_keys
+                    )
                 )
                 if not authorization.permits_dispatch:
                     return self._deny(external_name, authorization)
                 operation = await self._control.reserve(authorization)
 
-        result = await self._dispatch(authorization, operation, arguments)
+        result = await self._dispatch(authorization, operation, arguments, meta)
         return await self._deliver(authorization, result)
 
     @staticmethod
@@ -113,6 +130,7 @@ class ProxyOrchestrator:
         authorization: CallAuthorization,
         operation: OperationRecord,
         arguments: dict[str, Any],
+        meta: types.RequestParamsMeta | None,
     ) -> types.CallToolResult:
         routed = authorization.routed
         if routed is None:
@@ -123,9 +141,14 @@ class ProxyOrchestrator:
         status, tool_error = OperationStatus.UNKNOWN, None
         try:
             upstream = self._upstreams[routed.server_id]
-            result = ensure_call_tool_result(
-                routed.external_name, await upstream.call_tool(routed.bare_name, arguments)
+            # `meta` is passed only when there is some, so an upstream that
+            # never sees `_meta` is called exactly as before.
+            call = (
+                upstream.call_tool(routed.bare_name, arguments)
+                if meta is None
+                else upstream.call_tool(routed.bare_name, arguments, meta=meta)
             )
+            result = ensure_call_tool_result(routed.external_name, await call)
             status, tool_error = OperationStatus.COMPLETED, result.is_error
             return result
         except MCPError as exc:

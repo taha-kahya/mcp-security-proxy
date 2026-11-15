@@ -2,19 +2,20 @@
 
 Records hold only sanitized data: tool arguments are reduced to a digest and
 their top-level key names, so audit files never contain raw argument values
-such as secrets or message bodies.
+such as secrets or message bodies. A request's `_meta` is masked the same way,
+except for keys the operator allowlists (0023).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SerializerFunctionWrapHandler, model_serializer
 
 
 class ArgumentDigest(BaseModel):
@@ -30,6 +31,27 @@ class ArgumentDigest(BaseModel):
             sha256=hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
             keys=tuple(sorted(arguments)),
         )
+
+
+class MetaDigest(ArgumentDigest):
+    """A request's `_meta`, masked like arguments, plus allowlisted values.
+
+    `values` holds the value of each allowlisted key that is present, but only
+    when it is a string, number, or boolean. A null, list, or object value is
+    never recorded raw, even for an allowlisted key: it is masked like the rest.
+    """
+
+    values: Mapping[str, str | int | float | bool] = Field(default_factory=dict)
+
+    @classmethod
+    def masked(cls, meta: Mapping[str, Any], unmasked_keys: Collection[str] = ()) -> MetaDigest:
+        digest = ArgumentDigest.of(meta)
+        values = {
+            key: value
+            for key, value in meta.items()
+            if key in unmasked_keys and isinstance(value, str | int | float | bool)
+        }
+        return cls(sha256=digest.sha256, keys=digest.keys, values=values)
 
 
 class InspectionSummary(BaseModel):
@@ -73,6 +95,16 @@ class DecisionRecord(AuditRecord):
     arguments: ArgumentDigest
     operation: str | None = None
     inspections: tuple[InspectionSummary, ...] = ()
+    # Only present when the request carried `_meta` in transparent mode, so
+    # every other record serializes exactly as before.
+    meta: MetaDigest | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_absent_meta(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data: dict[str, Any] = handler(self)
+        if self.meta is None:
+            data.pop("meta", None)
+        return data
 
 
 class DeliveryRecord(AuditRecord):

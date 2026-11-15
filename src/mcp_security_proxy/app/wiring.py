@@ -15,7 +15,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
-from mcp import ClientSession
+from mcp import ClientSession, types
 from mcp.server.lowlevel import Server
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
@@ -60,12 +60,21 @@ def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextMan
     )
 
 
-async def _discover_tools(sessions: Mapping[str, ClientSession]) -> RoutingTable:
-    routing_table = RoutingTable()
+async def _discover_tools(
+    sessions: Mapping[str, ClientSession], *, transparent: bool = False
+) -> RoutingTable:
+    routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
         discovered = await session.list_tools()
         routing_table.register_server_tools(server_id, discovered.tools)
     return routing_table
+
+
+def _upstream_identity(sessions: Mapping[str, ClientSession]) -> types.Implementation | None:
+    """The sole upstream's name and version, as it reported them on initialize.
+    None when it reported none, in which case the proxy keeps its own name."""
+    (session,) = sessions.values()  # transparent mode has exactly one (see ProxyConfig)
+    return session.server_info
 
 
 def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
@@ -121,7 +130,7 @@ async def build_app(
             upstream.id: await stack.enter_async_context(_connect_upstream(upstream))
             for upstream in config.servers
         }
-        routing_table = await _discover_tools(sessions)
+        routing_table = await _discover_tools(sessions, transparent=config.transparent)
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
 
@@ -131,6 +140,12 @@ async def build_app(
             control=build_control(security, registry, history, state),
             audit=audit,
             correlation=CorrelationTracker(),
+            forward_meta=config.transparent,
+            unmasked_meta_keys=config.audit_meta_allowlist,
         )
-        server = build_proxy_server(orchestrator, agent_facing.identity)
+        server = build_proxy_server(
+            orchestrator,
+            agent_facing.identity,
+            _upstream_identity(sessions) if config.transparent else None,
+        )
         yield ProxyApp(server, agent_facing.serve)
