@@ -14,9 +14,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from typing import Any
 
 from mcp import ClientSession, types
 from mcp.server.lowlevel import Server
+from pydantic import BaseModel
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
@@ -60,13 +62,26 @@ def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextMan
     )
 
 
+class _RawToolList(BaseModel):
+    """A `tools/list` result kept as plain JSON objects, so the upstream's key
+    order and any field the typed model does not declare survive."""
+
+    tools: list[dict[str, Any]]
+
+
+async def _raw_tool_definitions(session: ClientSession) -> list[dict[str, Any]]:
+    result = await session.send_request(types.ListToolsRequest(), _RawToolList)
+    return result.tools
+
+
 async def _discover_tools(
     sessions: Mapping[str, ClientSession], *, transparent: bool = False
 ) -> RoutingTable:
     routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
         discovered = await session.list_tools()
-        routing_table.register_server_tools(server_id, discovered.tools)
+        raw = await _raw_tool_definitions(session) if transparent else None
+        routing_table.register_server_tools(server_id, discovered.tools, raw)
     return routing_table
 
 
@@ -147,5 +162,6 @@ async def build_app(
             orchestrator,
             agent_facing.identity,
             _upstream_identity(sessions) if config.transparent else None,
+            verbatim_tools=config.transparent,
         )
         yield ProxyApp(server, agent_facing.serve)

@@ -26,6 +26,27 @@ Internal identity does not change. Policy rules, audit records, and defenses
 still use `server_id/tool`, so a policy written for the default mode works
 as it is.
 
+## Tool definitions are listed as the upstream sent them
+
+Each tool in `tools/list` is the JSON object the upstream sent, with the same
+content and the same key order at every level: the tool's own keys,
+`inputSchema` and its nested objects, `outputSchema`, `annotations`, and
+`_meta`. A field the MCP specification does not define is kept too. JSON
+whitespace may differ from the upstream's. The proxy captures the definitions
+from the upstream's raw `tools/list` result at startup, and the agent-facing
+server substitutes them for the SDK's own serialization, which would reorder
+keys and drop unknown fields. Policy and defenses still decide which tools
+are listed.
+
+Limits:
+
+- Only the first page of the upstream's tool list is read, as in the default
+  mode. A `nextCursor` is not followed or forwarded.
+- Other result members, such as `_meta` on the result itself, are not
+  taken from the upstream. The `initialize` result is built by the SDK from the
+  upstream's server name and version, so its other fields (for example
+  `title` or `instructions`) and its key order are the SDK's.
+
 ## Configure it
 
 ```yaml
