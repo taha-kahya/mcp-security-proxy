@@ -60,8 +60,8 @@ servers:
 
 The proxy refuses to start if `transparent` is on and `servers` does not hold
 exactly one entry. The pass-through profile is
-[`config/config.transparent.yaml`](../../config/config.transparent.yaml) with
-[`config/policies/transparent.yaml`](../../config/policies/transparent.yaml):
+`config/config.transparent.yaml` with
+`config/policies/transparent.yaml`:
 no defenses, and a policy that allows the upstream's tools.
 
 ## What it gives up
