@@ -1,6 +1,6 @@
 # 0021 — V4 delivery: one MR per shared capability, each with its first defense
 
-Status: Accepted
+Status: Superseded by [0024](0024-v4-delivery-by-category-tracks.md)
 
 ## Context
 

@@ -182,8 +182,9 @@ enforcement: {on_failure: block}       # optional override, same shape
 - **Not inspected:** upstream protocol errors, notifications, resources,
   and prompts (resources and prompts are still not proxied at all).
 - **No scan capability, argument-aware tool adapters, `Registry.approved`,
-  or server-identity view** yet. V4 adds them one MR at a time
-  ([0021](../decisions/0021-v4-capability-first-delivery.md)).
+  or server-identity view** yet. V4 adds them as planned in the
+  [V4 Defense Plan](v4-defense-plan.md)
+  ([0024](../decisions/0024-v4-delivery-by-category-tracks.md)).
 - **Definitions are still read once at startup**, so temporal defenses have
   nothing to compare against until re-discovery exists.
 - **Deadlines** cannot interrupt a defense that blocks the event loop.
