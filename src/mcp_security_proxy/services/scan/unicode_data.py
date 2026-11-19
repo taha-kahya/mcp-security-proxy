@@ -42,6 +42,10 @@ class UnicodeData:
     version: str
     prototypes: Mapping[str, str]
     scripts: ScriptRanges
+    # For each prototype, the scripts that have a character looking like it.
+    prototype_scripts: Mapping[str, frozenset[str]]
+    # `str.translate` table: non-ASCII lookalikes of a single ASCII character.
+    ascii_folding: Mapping[int, str]
 
     def script(self, char: str) -> str:
         return self.scripts.script(char)
@@ -49,6 +53,10 @@ class UnicodeData:
     def prototype(self, char: str) -> str:
         """The character this one is confusable with, or itself."""
         return self.prototypes.get(char, char)
+
+    def has_lookalike_in(self, char: str, script: str) -> bool:
+        """Whether `script` has a character that looks like `char`."""
+        return script in self.prototype_scripts.get(self.prototype(char), frozenset())
 
     def skeleton(self, text: str) -> str:
         decomposed = unicodedata.normalize("NFD", text)
@@ -63,11 +71,34 @@ def unicode_data() -> UnicodeData:
     )
     confusables = folder.joinpath("confusables.txt").read_text(encoding="utf-8-sig")
     scripts = folder.joinpath("Scripts.txt").read_text(encoding="utf-8-sig")
+    prototypes = parse_confusables(confusables)
+    script_ranges = parse_scripts(scripts)
     return UnicodeData(
         UNICODE_VERSION,
-        MappingProxyType(parse_confusables(confusables)),
-        parse_scripts(scripts),
+        MappingProxyType(prototypes),
+        script_ranges,
+        MappingProxyType(_prototype_scripts(prototypes, script_ranges)),
+        MappingProxyType(_ascii_folding(prototypes)),
     )
+
+
+def _ascii_folding(prototypes: Mapping[str, str]) -> dict[int, str]:
+    return {
+        ord(char): prototype
+        for char, prototype in prototypes.items()
+        if not char.isascii() and len(prototype) == 1 and prototype.isascii()
+    }
+
+
+def _prototype_scripts(
+    prototypes: Mapping[str, str], scripts: ScriptRanges
+) -> dict[str, frozenset[str]]:
+    found: dict[str, set[str]] = {}
+    for char, prototype in prototypes.items():
+        found.setdefault(prototype, set()).add(scripts.script(char))
+        if len(prototype) == 1:
+            found[prototype].add(scripts.script(prototype))
+    return {prototype: frozenset(names) for prototype, names in found.items()}
 
 
 def parse_confusables(text: str) -> dict[str, str]:

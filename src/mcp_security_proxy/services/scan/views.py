@@ -24,24 +24,32 @@ import re
 import unicodedata
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cache, cached_property, lru_cache
 from urllib.parse import unquote
 
-from mcp_security_proxy.sdk import Decoding
+from mcp_security_proxy.sdk import Decoding, ScanLimitError
 from mcp_security_proxy.services.scan.unicode_data import UnicodeData
 
 MAX_DEPTH = 3
-MAX_SEGMENTS = 32
+# More disguised segments (base64, tag characters) than this in one string is
+# not normal text; the scan stops with `ScanLimitError` rather than skip the
+# rest. Percent-encoding is normal in URLs, so it doesn't count.
+MAX_DISGUISED_SEGMENTS = 256
 MIN_BASE64_LENGTH = 16
 
 # Characters with no visible glyph that are not format characters (Cf).
-_FILLERS = frozenset("͏ᅟᅠㅤﾠ")
+_FILLERS = frozenset("\u034f\u115f\u1160\u3164\uffa0")
 _KEPT_CONTROLS = frozenset("\t\n\r")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-_TAG_OFFSET = 0xE0000
+# Anything normalization might change: outside printable ASCII and kept controls.
+_SPECIAL_RUN = re.compile(r"[^\x20-\x7e\t\n\r]+")
+_TAG_FIRST, _TAG_LAST = 0xE0000, 0xE007F
+_TAG_OFFSET = _TAG_FIRST
 _TAG_RUN = re.compile("[\U000e0000-\U000e007f]+")
 _BASE64 = re.compile(rf"(?<![\w+/=-])[A-Za-z0-9+/_-]{{{MIN_BASE64_LENGTH},}}={{0,2}}(?![\w+/=-])")
-_PERCENT = re.compile(r"[^\s%]*(?:%[0-9A-Fa-f]{2}[^\s%]*){2,}")
+# A whole whitespace-delimited token with at least two escapes. Matching starts
+# only at a token start, so long words are scanned once, not once per position.
+_PERCENT = re.compile(r"(?<!\S)(?=\S*?%[0-9A-Fa-f]{2}\S*?%[0-9A-Fa-f]{2})\S+")
 
 
 def is_invisible(char: str) -> bool:
@@ -49,16 +57,34 @@ def is_invisible(char: str) -> bool:
     return unicodedata.category(char) == "Cf" or char in _FILLERS
 
 
+@cache
+def invisible_run() -> re.Pattern[str]:
+    """Runs of invisible characters other than tag characters, which are
+    handled as encoded text. Built once from the interpreter's Unicode data."""
+    members = [
+        code_point
+        for code_point in range(0x110000)
+        if not _TAG_FIRST <= code_point <= _TAG_LAST and is_invisible(chr(code_point))
+    ]
+    return re.compile(f"[{''.join(_class_ranges(members))}]+")
+
+
+def _class_ranges(code_points: list[int]) -> Iterator[str]:
+    start = previous = code_points[0]
+    for code_point in [*code_points[1:], -1]:
+        if code_point != previous + 1:
+            yield f"\\U{start:08x}-\\U{previous:08x}"
+            start = code_point
+        previous = code_point
+
+
+@lru_cache(maxsize=8192)
 def normalize_char(char: str) -> str:
     if is_invisible(char):
         return ""
     if unicodedata.category(char) == "Cc" and char not in _KEPT_CONTROLS:
         return ""
     return unicodedata.normalize("NFKC", char)
-
-
-def normalize(text: str) -> str:
-    return "".join(normalize_char(char) for char in text)
 
 
 def _obfuscates(char: str) -> bool:
@@ -92,6 +118,10 @@ class View:
     source: str
     index_map: Sequence[int]
     outer: Located | None = None
+
+    @property
+    def is_folded(self) -> bool:
+        return self.text != self.base
 
     def locate(self, start: int, end: int) -> Located:
         src_start, src_end = self.index_map[start], self.index_map[end - 1] + 1
@@ -143,21 +173,29 @@ class TextViews:
 
     @cached_property
     def normalized(self) -> View:
-        if self.text.isascii() and not _CONTROL.search(self.text):
-            return View(self.text, self.text, self.text, range(len(self.text)), self._outer)
+        text = self.text
+        if not _SPECIAL_RUN.search(text):
+            return View(text, text, text, range(len(text)), self._outer)
         chars: list[str] = []
         index_map: list[int] = []
-        for index, char in enumerate(self.text):
-            replacement = normalize_char(char)
-            chars.append(replacement)
-            index_map.extend([index] * len(replacement))
-        text = "".join(chars)
-        return View(text, text, self.text, index_map, self._outer)
+        position = 0
+        for match in _SPECIAL_RUN.finditer(text):
+            start, end = match.span()
+            chars.append(text[position:start])
+            index_map.extend(range(position, start))
+            self._normalize_run(match.group(), start, chars, index_map)
+            position = end
+        chars.append(text[position:])
+        index_map.extend(range(position, len(text)))
+        normalized = "".join(chars)
+        return View(normalized, normalized, text, index_map, self._outer)
 
     @cached_property
     def folded(self) -> View | None:
         base = self.normalized
-        folded = "".join(self._fold(char) for char in base.text)
+        if base.text.isascii():
+            return None
+        folded = base.text.translate(self._unicode.ascii_folding)
         if folded == base.text:
             return None
         return View(folded, base.text, self.text, base.index_map, self._outer)
@@ -165,13 +203,26 @@ class TextViews:
     @cached_property
     def segments(self) -> tuple[Segment, ...]:
         found = [*self._tag_segments(), *self._encoded_segments()]
-        return tuple(sorted(found, key=lambda s: s.span)[:MAX_SEGMENTS])
+        disguised = sum(segment.decoding is not Decoding.PERCENT for segment in found)
+        if disguised > MAX_DISGUISED_SEGMENTS:
+            raise ScanLimitError(
+                f"more than {MAX_DISGUISED_SEGMENTS} encoded segments in one string"
+            )
+        return tuple(sorted(found, key=lambda segment: segment.span))
 
-    def _fold(self, char: str) -> str:
-        if char.isascii():
-            return char
-        prototype = self._unicode.prototype(char)
-        return prototype if len(prototype) == 1 and prototype.isascii() else char
+    @staticmethod
+    def _normalize_run(run: str, start: int, chars: list[str], index_map: list[int]) -> None:
+        """Copy a run that is already normalized and visible in one step;
+        otherwise normalize it character by character."""
+        if unicodedata.is_normalized("NFKC", run) and not invisible_run().search(run):
+            if not _CONTROL.search(run) and not _TAG_RUN.search(run):
+                chars.append(run)
+                index_map.extend(range(start, start + len(run)))
+                return
+        for offset, char in enumerate(run):
+            replacement = normalize_char(char)
+            chars.append(replacement)
+            index_map.extend([start + offset] * len(replacement))
 
     def _place(self, segment: Segment) -> Located:
         if self._outer is None:
@@ -195,7 +246,10 @@ class TextViews:
 
     def _encoded_segments(self) -> Iterator[Segment]:
         view = self.normalized
-        for pattern, decode in ((_BASE64, decode_base64), (_PERCENT, _decode_percent)):
+        patterns = [(_BASE64, decode_base64)]
+        if "%" in view.text:
+            patterns.append((_PERCENT, _decode_percent))
+        for pattern, decode in patterns:
             for match in pattern.finditer(view.text):
                 decoded = decode(match.group())
                 if decoded is not None:
