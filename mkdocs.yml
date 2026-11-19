@@ -93,6 +93,7 @@ nav:
       - decisions/0020-inspection-stages-and-delivery-semantics.md
       - decisions/0021-v4-capability-first-delivery.md
       - decisions/0024-v4-delivery-by-category-tracks.md
+      - decisions/0025-scan-contract-and-rule-stage.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 
