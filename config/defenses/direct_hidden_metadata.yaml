@@ -1,0 +1,6 @@
+# Content hidden in tool definitions: comments, invisible and tag characters,
+# terminal escapes, encoded text, padding, and instructions concealed by any
+# of them (plan MR D2). See src/mcp_security_proxy/defenses/direct/hidden_metadata.
+id: direct_hidden_metadata
+enabled: true
+settings: {}
