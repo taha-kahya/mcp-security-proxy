@@ -27,6 +27,7 @@ from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.log import AuditSink
 from mcp_security_proxy.services.policy import parse_policy
 from mcp_security_proxy.services.registry import ConfiguredToolAdapter, parse_tool_semantics
+from mcp_security_proxy.services.scan import RuleScanner
 from mcp_security_proxy.services.state import InMemoryStateStore, StateStore
 
 
@@ -80,6 +81,7 @@ def build_proxy(
         plan=plan,
         tool_semantics=semantics,
         defense_deadline_seconds=deadline_seconds,
+        scan=RuleScanner(),
     )
     store = state or InMemoryStateStore()
     history = History(store)

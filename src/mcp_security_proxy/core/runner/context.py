@@ -1,8 +1,9 @@
 """Build each defense's Context from trusted inputs and its manifest.
 
 The proxy supplies an `InspectionScope` assembled from Identity, Policy,
-Registry, and History, never from message content. Each defense then gets
-only the capabilities its manifest declares.
+Registry, and History, never from message content. Scan is shared by every
+inspection, so the factory holds it. Each defense then gets only the
+capabilities its manifest declares.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from mcp_security_proxy.sdk import (
     PolicyView,
     Principal,
     RegistryView,
+    ScanView,
     Signal,
 )
 from mcp_security_proxy.services.state import DefenseStateStore, TaskRef
@@ -37,8 +39,9 @@ class InspectionScope:
 
 
 class ContextFactory:
-    def __init__(self, private_state: DefenseStateStore) -> None:
+    def __init__(self, private_state: DefenseStateStore, scan: ScanView) -> None:
         self._private_state = private_state
+        self._scan = scan
 
     async def build(
         self, manifest: Manifest, scope: InspectionScope, signals: Iterable[Signal]
@@ -61,5 +64,6 @@ class ContextFactory:
                 history=scope.history if Capability.HISTORY in granted else None,
                 policy=scope.policy if Capability.POLICY in granted else None,
                 private_state=private_state,
+                scan=self._scan if Capability.SCAN in granted else None,
             ),
         )
