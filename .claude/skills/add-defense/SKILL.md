@@ -146,6 +146,12 @@ Then run `uv sync` so the entry point is installed.
 - The deadline is 2 s and can't interrupt code that blocks the event loop.
   Keep CPU work small and never call blocking functions.
 
+**Use the SDK's helpers for shared judgements:**
+- Classify URLs and hosts with `classify_destination`, never with your own
+  regex or `ipaddress` calls, so every defense agrees on what is internal
+  and disguised addresses can't slip past one of them. Treat `name` and
+  `invalid` as unknown, never as external or safe.
+
 **Validate settings:**
 - Use a pydantic model with `extra="forbid", frozen=True`.
 - `create` raises `ValueError` for bad settings; pydantic's
