@@ -30,4 +30,6 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0018](0018-enforcement-defaults-and-defense-overrides.md) | Enforcement: policy defaults, per-defense overrides, strictest wins | Accepted |
 | [0019](0019-defense-extension-mechanism.md) | Defense extension: entry points, manifests, and failures as results | Accepted |
 | [0020](0020-inspection-stages-and-delivery-semantics.md) | Inspection stages: definitions gate calls; withheld results ran | Accepted |
-| [0021](0021-v4-capability-first-delivery.md) | V4 delivery: one MR per shared capability, each with its first defense | Accepted |
+| [0021](0021-v4-capability-first-delivery.md) | V4 delivery: one MR per shared capability, each with its first defense | Superseded by 0024 |
+| [0024](0024-v4-delivery-by-category-tracks.md) | V4 delivery: shared foundations first, then one track per attack category | Accepted |
+| [0025](0025-scan-contract-and-rule-stage.md) | Scan: an async, stage-aware contract and its rule stage | Accepted |

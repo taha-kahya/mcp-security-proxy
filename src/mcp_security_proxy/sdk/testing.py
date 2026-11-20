@@ -4,6 +4,9 @@ capabilities, then call `evaluate` directly, without running the proxy.
 `make_context` grants exactly the capabilities the manifest declares, the
 same way the Runner does, so a test fails if a defense uses a capability it
 forgot to declare.
+
+`FakeScan` returns scripted matches, so a defense's tests check how it turns
+Scan evidence into findings. What Scan itself detects is tested with Scan.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from mcp_security_proxy.sdk.context import Context, Grants
 from mcp_security_proxy.sdk.events import ContentBlock, Direction, Event, Stage
 from mcp_security_proxy.sdk.manifest import Capability, Manifest
 from mcp_security_proxy.sdk.results import Signal
+from mcp_security_proxy.sdk.scan import Detector, ScanMatch, ScanResult, ScanView
 from mcp_security_proxy.sdk.types import Principal, ToolId
 
 TEST_PRINCIPAL = Principal(id="test-principal", authenticated_by="test")
@@ -92,6 +96,35 @@ class FakePolicy:
         return tool_id in self.discoverable
 
 
+@dataclass
+class FakeScan:
+    """Returns `matches` for every value scanned, filtered by detector.
+
+    `scanned` records each call as `(detector, value)`, so a test can check
+    what a defense asked Scan to look at.
+    """
+
+    matches: tuple[ScanMatch, ...] = ()
+    version: str = "fake-scan"
+    scanned: list[tuple[Detector, Any]] = field(default_factory=list)
+
+    async def hidden(self, value: Any) -> ScanResult:
+        return self._result(Detector.HIDDEN, value)
+
+    async def instructions(self, value: Any) -> ScanResult:
+        return self._result(Detector.INSTRUCTIONS, value)
+
+    async def lookalikes(self, value: Any) -> ScanResult:
+        return self._result(Detector.LOOKALIKES, value)
+
+    async def secrets(self, value: Any) -> ScanResult:
+        return self._result(Detector.SECRETS, value)
+
+    def _result(self, detector: Detector, value: Any) -> ScanResult:
+        self.scanned.append((detector, value))
+        return ScanResult(tuple(m for m in self.matches if m.detector is detector), self.version)
+
+
 def operation(
     tool_id: ToolId = TEST_TOOL,
     op: Operation = Operation.WRITE,
@@ -124,6 +157,7 @@ def make_context(
     history: HistorySnapshot | None = None,
     policy: PolicyView | None = None,
     private_state: PrivateState | None = None,
+    scan: ScanView | None = None,
     signals: Iterable[Signal] = (),
     tool_version: str | None = None,
 ) -> Context:
@@ -133,6 +167,7 @@ def make_context(
         Capability.HISTORY: history,
         Capability.POLICY: policy,
         Capability.PRIVATE_STATE: private_state,
+        Capability.SCAN: scan,
     }
     undeclared = {
         name
@@ -158,5 +193,6 @@ def make_context(
             private_state=(
                 (private_state or PrivateState()) if Capability.PRIVATE_STATE in granted else None
             ),
+            scan=(scan or FakeScan()) if Capability.SCAN in granted else None,
         ),
     )

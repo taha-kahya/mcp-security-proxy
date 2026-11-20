@@ -1,6 +1,6 @@
 """Startup wiring for the security half of the proxy: policy with defense
-enforcement, the defense execution plan, tool semantics, state, and the
-`ProxyControl` that combines them.
+enforcement, the defense execution plan, tool semantics, Scan, state, and
+the `ProxyControl` that combines them.
 
 Everything that can be validated without upstream servers is checked in
 `load_security`, before any subprocess is spawned.
@@ -25,7 +25,7 @@ from mcp_security_proxy.core.runner import (
     Runner,
     build_plan,
 )
-from mcp_security_proxy.sdk import Capability
+from mcp_security_proxy.sdk import Capability, ScanView
 from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.policy import PolicySnapshot, load_policy
 from mcp_security_proxy.services.registry import (
@@ -34,6 +34,7 @@ from mcp_security_proxy.services.registry import (
     ToolSemanticsError,
     load_tool_semantics,
 )
+from mcp_security_proxy.services.scan import RuleScanner
 from mcp_security_proxy.services.state import (
     DefenseStateStore,
     InMemoryStateStore,
@@ -53,6 +54,7 @@ class SecuritySetup:
     plan: ExecutionPlan
     tool_semantics: ConfiguredToolAdapter
     defense_deadline_seconds: float
+    scan: ScanView
 
 
 def load_security(config: ProxyConfig, catalog: DefenseCatalog) -> SecuritySetup:
@@ -77,7 +79,9 @@ def load_security(config: ProxyConfig, catalog: DefenseCatalog) -> SecuritySetup
         if config.tools_path is not None
         else ConfiguredToolAdapter.empty()
     )
-    return SecuritySetup(policy, plan, semantics, config.defense_deadline_seconds)
+    # Built here so its Unicode data loads before any upstream server starts.
+    scan = RuleScanner()
+    return SecuritySetup(policy, plan, semantics, config.defense_deadline_seconds, scan)
 
 
 def open_state(config: StateConfig) -> StateStore:
@@ -107,7 +111,7 @@ def build_control(
     defense_state = DefenseStateStore(state)
     runner = Runner(
         setup.plan,
-        ContextFactory(defense_state),
+        ContextFactory(defense_state, setup.scan),
         deadline_seconds=setup.defense_deadline_seconds,
     )
     return ProxyControl(
