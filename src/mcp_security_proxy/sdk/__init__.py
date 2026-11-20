@@ -20,6 +20,12 @@ from mcp_security_proxy.sdk.capabilities import (
 )
 from mcp_security_proxy.sdk.context import CapabilityNotGrantedError, Context, Grants
 from mcp_security_proxy.sdk.defense import DEFENSE_ENTRY_POINT_GROUP, Defense, DefenseFactory
+from mcp_security_proxy.sdk.destinations import (
+    Destination,
+    DestinationKind,
+    HostForm,
+    classify_destination,
+)
 from mcp_security_proxy.sdk.digest import canonical_digest
 from mcp_security_proxy.sdk.events import (
     ContentBlock,
@@ -55,11 +61,14 @@ __all__ = [
     "Context",
     "Defense",
     "DefenseFactory",
+    "Destination",
+    "DestinationKind",
     "Direction",
     "Event",
     "Finding",
     "Grants",
     "HistorySnapshot",
+    "HostForm",
     "InspectionStatus",
     "Manifest",
     "Operation",
@@ -80,6 +89,7 @@ __all__ = [
     "ToolId",
     "VersionedValue",
     "canonical_digest",
+    "classify_destination",
     "freeze",
     "thaw",
 ]
