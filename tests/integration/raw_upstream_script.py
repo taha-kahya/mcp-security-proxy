@@ -12,6 +12,10 @@ Options (argv), each off by default:
                and `instructions` on initialize
   --progress   on `tools/call`, send two progress updates for the request's own
                progress token before the result
+  --output-schema  give `zeta` an `outputSchema` requiring an integer `n` (a string
+               on every `tools/list` after the first), and make `zeta` calls return
+               structured content that reports how many `tools/list` requests
+               the upstream has seen
   --drift      answer every `tools/list` after the first with a different `zeta`
                description, so a second fetch would be visible
 """
@@ -45,6 +49,10 @@ def tool_pages(argv: list[str], listing: int) -> list[str]:
     zeta = ZETA_JSON
     if "--drift" in argv and listing > 0:
         zeta = zeta.replace("second letter last", DRIFTED_DESCRIPTION)
+    if "--output-schema" in argv:
+        kind = "integer" if listing == 0 else "string"
+        schema = f'{{"type":"object","properties":{{"n":{{"type":"{kind}"}}}},"required":["n"]}}'
+        zeta = zeta[:-1] + f',"outputSchema":{schema}}}'
     tools = [zeta, ALPHA_JSON]
     if "--poison" in argv:
         tools.append(POISON_TOOL_JSON)
@@ -55,6 +63,7 @@ def tool_pages(argv: list[str], listing: int) -> list[str]:
 
 def main() -> None:
     listings = 0
+    requests = 0
     for line in sys.stdin:
         message = json.loads(line)
         if "id" not in message:
@@ -76,6 +85,7 @@ def main() -> None:
                 f'"serverInfo":{info}{extra}}}'
             )
         elif method == "tools/list":
+            requests += 1
             pages = tool_pages(sys.argv[1:], listings)
             listings += 1 if not (message.get("params") or {}).get("cursor") else 0
             index = 1 if (message.get("params") or {}).get("cursor") == "page-2" else 0
@@ -96,6 +106,12 @@ def main() -> None:
                 sys.stdout.flush()
             text = json.dumps(message["params"]["name"])
             result = f'{{"content":[{{"type":"text","text":{text}}}]}}'
+            if "--output-schema" in sys.argv and message["params"]["name"] == "zeta":
+                structured = f'{{"n":1,"listRequests":{requests}}}'
+                result = (
+                    f'{{"content":[{{"type":"text","text":{json.dumps(structured)}}}],'
+                    f'"structuredContent":{structured}}}'
+                )
         else:
             result = "{}"
         request_id = json.dumps(message["id"])

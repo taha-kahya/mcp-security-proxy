@@ -90,6 +90,21 @@ async def _raw_tool_definitions(session: ClientSession) -> list[dict[str, Any]]:
         seen.add(cursor)
 
 
+def _share_tool_listing_with_session(session: ClientSession, tools: list[types.Tool]) -> None:
+    """Give the session the listing already fetched, so it never lists again.
+
+    The SDK checks a tool result against the output schema cached by
+    `ClientSession.list_tools()`, and calls `list_tools()` itself the first time
+    it meets a tool it has not cached. Transparent mode fetches the raw list
+    without `list_tools()`, so without this a second `tools/list` would happen
+    at the first call, and an upstream could serve a different `outputSchema`
+    than the one inspected. The SDK has no public way to seed that cache, so
+    this uses the same private method `list_tools()` uses to fill it; a test
+    (`test_the_upstream_is_listed_once_*`) fails if the SDK stops behaving so.
+    """
+    session._absorb_tool_listing(types.ListToolsResult(tools=tools), complete=True)
+
+
 async def _discover_tools(
     sessions: Mapping[str, ClientSession], *, transparent: bool = False
 ) -> RoutingTable:
@@ -100,6 +115,7 @@ async def _discover_tools(
             # agent will receive and the defenses and Registry will see.
             raw = await _raw_tool_definitions(session)
             tools = [types.Tool.model_validate(definition) for definition in raw]
+            _share_tool_listing_with_session(session, tools)
             routing_table.register_server_tools(server_id, tools, raw)
         else:
             routing_table.register_server_tools(server_id, (await session.list_tools()).tools)

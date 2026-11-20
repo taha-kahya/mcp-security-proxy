@@ -55,6 +55,9 @@ Limits:
   taken from the upstream.
 - The proxy does not re-list the upstream's tools after startup, so the list
   the agent sees is the startup snapshot.
+  The proxy's check of a tool result against the tool's `outputSchema` uses
+  that same snapshot, so the upstream receives exactly one `tools/list` series
+  for the whole run.
 
 ## Configure it
 

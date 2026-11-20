@@ -35,6 +35,7 @@ def _exchange(tmp_path: Path, requests: list[dict[str, Any]], **options: Any) ->
     and reading continues until `await_notifications` of them have arrived."""
     notifications: list[dict[str, Any]] | None = options.pop("notifications", None)
     await_notifications: int = options.pop("await_notifications", 0)
+    transparent: bool = options.pop("transparent", True)
     upstream_args: list[str] = options.pop("upstream_args", [])
     config = build_proxy_config(
         [{"id": "raw", "command": sys.executable, "args": [str(SCRIPT), *upstream_args]}],
@@ -42,7 +43,8 @@ def _exchange(tmp_path: Path, requests: list[dict[str, Any]], **options: Any) ->
         tmp_path,
         **options,
     )
-    config["transparent"] = True
+    if transparent:
+        config["transparent"] = True
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     init = {
@@ -243,3 +245,33 @@ def test_no_progress_is_sent_to_an_agent_that_did_not_ask_for_it(tmp_path: Path)
     }
     _exchange(tmp_path, [call], upstream_args=["--progress"], notifications=notifications)
     assert not [n for n in notifications if n["method"] == "notifications/progress"]
+
+
+def _zeta_call(name: str) -> dict[str, Any]:
+    return {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": {"query": "q"}},
+    }
+
+
+def test_the_upstream_is_listed_once_in_transparent_mode_across_a_call(tmp_path: Path) -> None:
+    """From the second `tools/list` on, the upstream serves an `outputSchema`
+    the call result does not satisfy. The call succeeds only if the SDK
+    validated against the first, inspected listing and never listed again."""
+    lines = _exchange(tmp_path, [_zeta_call("zeta")], upstream_args=["--output-schema"])
+    response = json.loads(lines[2])
+    assert "error" not in response
+    assert not response["result"].get("isError")
+    assert response["result"]["structuredContent"]["listRequests"] == 1
+
+
+def test_the_upstream_is_listed_once_in_default_mode_across_a_call(tmp_path: Path) -> None:
+    lines = _exchange(
+        tmp_path, [_zeta_call("raw__zeta")], upstream_args=["--output-schema"], transparent=False
+    )
+    response = json.loads(lines[2])
+    assert "error" not in response
+    assert not response["result"].get("isError")
+    assert response["result"]["structuredContent"]["listRequests"] == 1
