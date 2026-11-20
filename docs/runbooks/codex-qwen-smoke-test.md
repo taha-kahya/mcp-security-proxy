@@ -155,3 +155,23 @@ In the Codex session:
 If something fails, note whether the failure is in Codex/Ollama setup (not a
 proxy issue) versus the proxy itself misbehaving — only the latter is
 relevant to the proxy's correctness.
+
+## Recorded runs
+
+This section records each time the smoke test was actually run, newest first.
+
+### 2026-11-15: scripted host variant (pass)
+
+- **Variant:** Codex CLI was not used. A small scripted MCP host drove the same chain: Qwen via Ollama `/api/chat` with tools → scripted host (MCP stdio client) → proxy (Config A, stdio) → mock servers A and B. So this run does not exercise Codex CLI or the `/v1/responses` path described above.
+- **Environment:** Ollama 0.40.6; model `qwen3.5:9b-q4_K_M` (the pinned tag, not the bare `qwen3.5:9b` used in section 1); temperature 0.2, `think` off; proxy code at `main` commit `2b60837`; macOS.
+- **Config:** a copy of `config/config.stdio.yaml` with output paths (proxy audit log, state database, mock audit logs) moved outside the repository. Policy, tool and defense files unchanged.
+
+Results against "Done when":
+
+- **Tool list:** seven tools: `server_a__read_record`, `server_a__write_record`, `server_a__send_message`, `server_a__slow_write`, `server_b__read_record`, `server_b__write_record`, `server_b__send_message`. `server_b__slow_write` is hidden. This matches the reference policy.
+- **Write then read on `server_a`:** `server_a__write_record(key=greeting, value=hello)`, then `server_a__read_record(key=greeting)` returned `hello`. The model reported the value correctly.
+- **`server_a__send_message`:** completed.
+- **`server_b__send_message`:** returned a tool error, "Call blocked: requires approval, and no approval mechanism is available". Server B's audit log was not created, so nothing was sent.
+- **Proxy audit log:** one `decision` with outcome `allow` and one `outcome` `completed` for each of the three allowed calls. One `decision` with outcome `require_approval` and no `outcome` record for the blocked call. Arguments were recorded as digests and key names, not values.
+
+Limits: each task was run once. This shows that a live local model can use the proxy. It is not a success rate. The proxy reported the server name `mcp-security-proxy` and prefixed tool names, as designed ([0007](../decisions/0007-tool-identity-correlation-and-stdio-failure-semantics.md)).
