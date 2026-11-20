@@ -18,7 +18,8 @@ from typing import Any
 
 from mcp import ClientSession, types
 from mcp.server.lowlevel import Server
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
@@ -62,16 +63,31 @@ def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextMan
     )
 
 
-class _RawToolList(BaseModel):
-    """A `tools/list` result kept as plain JSON objects, so the upstream's key
+class _RawToolPage(BaseModel):
+    """One `tools/list` page kept as plain JSON objects, so the upstream's key
     order and any field the typed model does not declare survive."""
 
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
     tools: list[dict[str, Any]]
+    next_cursor: str | None = None
 
 
 async def _raw_tool_definitions(session: ClientSession) -> list[dict[str, Any]]:
-    result = await session.send_request(types.ListToolsRequest(), _RawToolList)
-    return result.tools
+    """Every page of the upstream's tool list, fetched once, as raw JSON objects."""
+    tools: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    cursor: str | None = None
+    while True:
+        params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
+        page = await session.send_request(types.ListToolsRequest(params=params), _RawToolPage)
+        tools.extend(page.tools)
+        cursor = page.next_cursor
+        if not cursor:
+            return tools
+        if cursor in seen:
+            raise ValueError("upstream tools/list repeated a pagination cursor")
+        seen.add(cursor)
 
 
 async def _discover_tools(
@@ -79,9 +95,14 @@ async def _discover_tools(
 ) -> RoutingTable:
     routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
-        discovered = await session.list_tools()
-        raw = await _raw_tool_definitions(session) if transparent else None
-        routing_table.register_server_tools(server_id, discovered.tools, raw)
+        if transparent:
+            # One fetch: the typed tool is built from the same JSON object the
+            # agent will receive and the defenses and Registry will see.
+            raw = await _raw_tool_definitions(session)
+            tools = [types.Tool.model_validate(definition) for definition in raw]
+            routing_table.register_server_tools(server_id, tools, raw)
+        else:
+            routing_table.register_server_tools(server_id, (await session.list_tools()).tools)
     return routing_table
 
 

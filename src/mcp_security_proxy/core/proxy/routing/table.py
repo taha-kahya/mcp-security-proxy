@@ -27,8 +27,9 @@ class RoutedTool:
     bare_name: str
     external_name: str
     tool: types.Tool
-    # The definition exactly as the upstream sent it on the wire, key order
-    # included. Only captured in transparent mode (see `register_server_tools`).
+    # The definition exactly as the upstream sent it on the wire, key order and
+    # unknown fields included; `tool` is built from this same object. Only
+    # captured in transparent mode (see `register_server_tools`).
     raw: Mapping[str, Any] | None = None
 
     @property
@@ -39,12 +40,11 @@ class RoutedTool:
         """The upstream definition as advertised to the agent."""
         return self.tool.model_copy(update={"name": self.external_name})
 
-    def external_wire(self) -> dict[str, Any] | None:
-        """The upstream's own JSON definition, with `name` set to the external
-        name in place so every key keeps its position. None when not captured."""
-        if self.raw is None:
-            return None
-        return {k: (self.external_name if k == "name" else v) for k, v in self.raw.items()}
+    def external_wire(self) -> Mapping[str, Any] | None:
+        """The upstream's own JSON definition, or None when not captured. In
+        transparent mode the external name is the bare name, so nothing in it
+        needs rewriting."""
+        return self.raw
 
 
 class RoutingTable:
@@ -58,15 +58,17 @@ class RoutingTable:
         tools: list[types.Tool],
         raw_tools: list[dict[str, Any]] | None = None,
     ) -> None:
-        """`raw_tools` are the same definitions as the upstream sent them,
-        matched to `tools` by name."""
-        raw_by_name = {r["name"]: r for r in raw_tools or [] if isinstance(r.get("name"), str)}
-        for tool in tools:
+        """`raw_tools` are the definitions as the upstream sent them, one per
+        entry of `tools` and in the same order (each tool is built from its
+        raw object)."""
+        if raw_tools is not None and len(raw_tools) != len(tools):
+            raise ValueError("raw_tools must hold one definition per tool")
+        for index, tool in enumerate(tools):
             name = tool.name if self._transparent else external_tool_name(server_id, tool.name)
             if name in self._by_external_name:
                 raise ValueError(f"duplicate external tool name: {name!r}")
             self._by_external_name[name] = RoutedTool(
-                server_id, tool.name, name, tool, raw_by_name.get(tool.name)
+                server_id, tool.name, name, tool, raw_tools[index] if raw_tools else None
             )
 
     def entries(self) -> list[RoutedTool]:

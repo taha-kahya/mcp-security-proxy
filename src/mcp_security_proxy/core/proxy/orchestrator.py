@@ -90,7 +90,7 @@ class ProxyOrchestrator:
         await self._record_or_refuse(discovery_record(principal, discovery))
         return [routed.external_tool() for routed in discovery.visible]
 
-    def wire_definition(self, external_name: str) -> dict[str, Any] | None:
+    def wire_definition(self, external_name: str) -> Mapping[str, Any] | None:
         """The upstream's own JSON for an advertised tool, when captured."""
         routed = self._routing.find(external_name)
         return routed.external_wire() if routed else None

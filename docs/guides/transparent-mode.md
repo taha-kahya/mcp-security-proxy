@@ -32,20 +32,29 @@ Each tool in `tools/list` is the JSON object the upstream sent, with the same
 content and the same key order at every level: the tool's own keys,
 `inputSchema` and its nested objects, `outputSchema`, `annotations`, and
 `_meta`. A field the MCP specification does not define is kept too. JSON
-whitespace may differ from the upstream's. The proxy captures the definitions
-from the upstream's raw `tools/list` result at startup, and the agent-facing
-server substitutes them for the SDK's own serialization, which would reorder
+whitespace may differ from the upstream's. The proxy fetches the upstream's
+`tools/list` once at startup, following `nextCursor` through every page, and
+keeps each tool as the raw JSON object it received. The agent-facing server
+substitutes those objects for the SDK's own serialization, which would reorder
 keys and drop unknown fields. Policy and defenses still decide which tools
 are listed.
 
+## Defenses inspect what the agent receives
+
+The JSON object the agent receives for a tool is the same object that was
+inspected and versioned. The typed tool model is built from it, and the
+definition a defense reads from the Registry, and the digest that versions it,
+are computed from it, including fields the MCP specification does not define.
+An instruction hidden in an undefined field is therefore visible to a
+defense, and a tool a defense or policy hides is not sent. Transparent mode
+and defenses can be enabled together.
+
 Limits:
 
-- Only the first page of the upstream's tool list is read, as in the default
-  mode. A `nextCursor` is not followed or forwarded.
 - Other result members, such as `_meta` on the result itself, are not
-  taken from the upstream. The `initialize` result is built by the SDK from the
-  upstream's server name and version, so its other fields (for example
-  `title` or `instructions`) and its key order are the SDK's.
+  taken from the upstream.
+- The proxy does not re-list the upstream's tools after startup, so the list
+  the agent sees is the startup snapshot.
 
 ## Configure it
 
@@ -92,8 +101,11 @@ Only string, number, and boolean values are recorded for an allowlisted key.
 A value of any other type is masked. A request without `_meta` produces the
 same record as before. `audit_meta_allowlist` requires `transparent: true`.
 
-## Server instructions are not forwarded
+## Server identity and instructions
 
-The upstream's `instructions` text is not passed on, and the proxy forwards
-no prompts or resources. Transparent mode does not implement the instruction
-profile that ADR 0023 describes.
+The `initialize` result reports the upstream's own `serverInfo`: `name`,
+`version`, and `title`, `description`, `websiteUrl` and `icons` when it sends
+them. The upstream's `instructions` text is forwarded unchanged, which is the
+pass-through profile of ADR 0023 decision 4. It is attacker-controlled text,
+so the proxy logs a warning at startup when it forwards any. The proxy
+forwards no prompts or resources.

@@ -29,9 +29,11 @@ def _ordered(text: str) -> Any:
 
 
 def _exchange(tmp_path: Path, requests: list[dict[str, Any]], **options: Any) -> dict[int, str]:
-    """Run the proxy over stdio, send the requests, and return raw response lines by id."""
+    """Run the proxy over stdio, send the requests, and return raw response lines by id.
+    `upstream_args` are extra arguments for the raw upstream script."""
+    upstream_args: list[str] = options.pop("upstream_args", [])
     config = build_proxy_config(
-        [{"id": "raw", "command": sys.executable, "args": [str(SCRIPT)]}],
+        [{"id": "raw", "command": sys.executable, "args": [str(SCRIPT), *upstream_args]}],
         "stdio",
         tmp_path,
         **options,
@@ -164,3 +166,16 @@ def test_tools_call_works_beside_the_verbatim_list(tmp_path: Path) -> None:
     response = json.loads(lines[3])
     assert "error" not in response
     assert response["result"]["content"][0]["text"] == "alpha"
+
+
+def test_every_page_of_the_upstream_list_is_sent_verbatim(tmp_path: Path) -> None:
+    _, listed = _listed_tools(tmp_path, upstream_args=["--paginate"])
+    assert listed == _upstream_tools()
+
+
+def test_the_agent_gets_the_definitions_from_the_one_startup_fetch(tmp_path: Path) -> None:
+    """The upstream answers any later `tools/list` differently. A second fetch
+    would put its text in front of the agent, not the text that was inspected."""
+    _, listed = _listed_tools(tmp_path, upstream_args=["--drift"])
+    assert listed == _upstream_tools()
+    assert "DRIFTED" not in json.dumps(listed)
