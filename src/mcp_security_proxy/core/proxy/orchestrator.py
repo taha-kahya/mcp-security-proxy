@@ -49,6 +49,12 @@ logger = logging.getLogger(__name__)
 _OUTCOME_UNCERTAIN_ERROR_CODES = frozenset({types.CONNECTION_CLOSED, types.REQUEST_TIMEOUT})
 
 
+class ProgressFnT(Protocol):
+    """Receives an upstream `notifications/progress` for one call."""
+
+    async def __call__(self, progress: float, total: float | None, message: str | None) -> None: ...
+
+
 class ToolCaller(Protocol):
     """The one upstream capability the orchestrator needs (`ClientSession` satisfies it)."""
 
@@ -58,6 +64,7 @@ class ToolCaller(Protocol):
         arguments: dict[str, Any] | None = None,
         *,
         meta: types.RequestParamsMeta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult: ...
 
 
@@ -101,8 +108,13 @@ class ProxyOrchestrator:
         external_name: str,
         arguments: dict[str, Any],
         meta: types.RequestParamsMeta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
+        """`progress_callback` relays the upstream's progress updates for this
+        call to the agent, which asked for them with a progress token. It is
+        used only where `_meta` is forwarded (transparent mode)."""
         meta = meta if self._forward_meta else None
+        progress_callback = progress_callback if self._forward_meta else None
         routed = self._routing.find(external_name)
         with _state_required():
             async with self._control.serialized(principal):
@@ -118,7 +130,7 @@ class ProxyOrchestrator:
                     return self._deny(external_name, authorization)
                 operation = await self._control.reserve(authorization)
 
-        result = await self._dispatch(authorization, operation, arguments, meta)
+        result = await self._dispatch(authorization, operation, arguments, meta, progress_callback)
         return await self._deliver(authorization, result)
 
     @staticmethod
@@ -136,6 +148,7 @@ class ProxyOrchestrator:
         operation: OperationRecord,
         arguments: dict[str, Any],
         meta: types.RequestParamsMeta | None,
+        progress_callback: ProgressFnT | None,
     ) -> types.CallToolResult:
         routed = authorization.routed
         if routed is None:
@@ -146,12 +159,8 @@ class ProxyOrchestrator:
         status, tool_error = OperationStatus.UNKNOWN, None
         try:
             upstream = self._upstreams[routed.server_id]
-            # `meta` is passed only when there is some, so an upstream that
-            # never sees `_meta` is called exactly as before.
-            call = (
-                upstream.call_tool(routed.bare_name, arguments)
-                if meta is None
-                else upstream.call_tool(routed.bare_name, arguments, meta=meta)
+            call = upstream.call_tool(
+                routed.bare_name, arguments, meta=meta, progress_callback=progress_callback
             )
             result = ensure_call_tool_result(routed.external_name, await call)
             status, tool_error = OperationStatus.COMPLETED, result.is_error

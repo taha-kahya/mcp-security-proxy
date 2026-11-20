@@ -181,7 +181,9 @@ async def build_app(
             forward_meta=config.transparent,
             unmasked_meta_keys=config.audit_meta_allowlist,
         )
-        server_info, instructions = _upstream_identity(sessions) if config.transparent else (None, None)
+        server_info, instructions = (
+            _upstream_identity(sessions) if config.transparent else (None, None)
+        )
         if instructions:
             logger.warning(
                 "transparent mode forwards the upstream's server instructions unchanged "

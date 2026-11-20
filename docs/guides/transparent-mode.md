@@ -88,6 +88,12 @@ The `_meta` object of an incoming `tools/call` is passed to the upstream
 reserved keys). `_meta` is opaque. It never takes part in identity, policy, or
 any defense decision.
 
+When the agent sends a `progressToken`, the proxy asks the upstream for
+progress and relays each `notifications/progress` for that call back to the
+agent under the agent's own token. The upstream sees the proxy's own token for
+that request, not the agent's, because the proxy matches updates to the call
+by it. A call without a token is forwarded as it arrived.
+
 The decision record keeps a masked view of it, as it does for arguments: a
 SHA-256 digest and the key names, never the values. To join audit records to
 evidence elsewhere by an identifier, name the keys whose values may be

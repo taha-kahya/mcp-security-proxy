@@ -10,6 +10,8 @@ Options (argv), each off by default:
   --poison     add a third tool, `gamma`, whose instruction is in an undefined field
   --identity   report a full `serverInfo` (title, description, websiteUrl, icons)
                and `instructions` on initialize
+  --progress   on `tools/call`, send two progress updates for the request's own
+               progress token before the result
   --drift      answer every `tools/list` after the first with a different `zeta`
                description, so a second fetch would be visible
 """
@@ -80,6 +82,18 @@ def main() -> None:
             cursor = ',"nextCursor":"page-2"' if index + 1 < len(pages) else ""
             result = f'{{"tools":[{pages[index]}]{cursor}}}'
         elif method == "tools/call":
+            token = (message["params"].get("_meta") or {}).get("progressToken")
+            if "--progress" in sys.argv and token is not None:
+                for step in (1, 2):
+                    note = {"progressToken": token, "progress": step, "total": 2}
+                    note["message"] = f"step {step}"
+                    sys.stdout.write(
+                        json.dumps(
+                            {"jsonrpc": "2.0", "method": "notifications/progress", "params": note}
+                        )
+                        + "\n"
+                    )
+                sys.stdout.flush()
             text = json.dumps(message["params"]["name"])
             result = f'{{"content":[{{"type":"text","text":{text}}}]}}'
         else:

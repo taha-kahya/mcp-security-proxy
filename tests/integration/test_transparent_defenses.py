@@ -18,7 +18,15 @@ from mcp import Client
 from mcp_security_proxy.app.config import ProxyConfig
 from mcp_security_proxy.app.wiring import build_app
 from mcp_security_proxy.core.runner import StaticCatalog
-from mcp_security_proxy.sdk import Context, Event, Finding, Result, Severity, Stage, canonical_digest
+from mcp_security_proxy.sdk import (
+    Context,
+    Event,
+    Finding,
+    Result,
+    Severity,
+    Stage,
+    canonical_digest,
+)
 from tests.harness.client import build_proxy_config
 from tests.harness.defenses import ScriptedDefense
 from tests.integration.raw_upstream_script import POISON_TOOL_JSON
@@ -66,7 +74,9 @@ async def test_an_instruction_in_an_undefined_field_is_seen_and_the_tool_is_not_
         async with Client(app.server) as client:
             names = [tool.name for tool in (await client.list_tools()).tools]
 
-    inspected = {event.tool_id.name: event.payload for event in defense.seen_events if event.tool_id}
+    inspected = {
+        event.tool_id.name: event.payload for event in defense.seen_events if event.tool_id
+    }
     # The typed model drops `x-notes`; the defense still saw it.
     assert inspected["gamma"]["x-notes"].startswith(MARKER)
     assert json.loads(POISON_TOOL_JSON)["x-notes"] == inspected["gamma"]["x-notes"]

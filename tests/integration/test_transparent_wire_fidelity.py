@@ -30,7 +30,11 @@ def _ordered(text: str) -> Any:
 
 def _exchange(tmp_path: Path, requests: list[dict[str, Any]], **options: Any) -> dict[int, str]:
     """Run the proxy over stdio, send the requests, and return raw response lines by id.
-    `upstream_args` are extra arguments for the raw upstream script."""
+    `upstream_args` are extra arguments for the raw upstream script. Messages
+    without an id (notifications) are appended to `notifications`, when given,
+    and reading continues until `await_notifications` of them have arrived."""
+    notifications: list[dict[str, Any]] | None = options.pop("notifications", None)
+    await_notifications: int = options.pop("await_notifications", 0)
     upstream_args: list[str] = options.pop("upstream_args", [])
     config = build_proxy_config(
         [{"id": "raw", "command": sys.executable, "args": [str(SCRIPT), *upstream_args]}],
@@ -68,10 +72,14 @@ def _exchange(tmp_path: Path, requests: list[dict[str, Any]], **options: Any) ->
     process.stdin.flush()
     lines: dict[int, str] = {}
     try:
-        while expected_ids - lines.keys():
+        while expected_ids - lines.keys() or len(notifications or []) < await_notifications:
             line = process.stdout.readline()
             assert line, "proxy closed stdout before answering every request"
-            lines[json.loads(line)["id"]] = line.strip()
+            message = json.loads(line)
+            if "id" in message:
+                lines[message["id"]] = line.strip()
+            elif notifications is not None:
+                notifications.append(message)
     finally:
         process.kill()
         process.wait()
@@ -199,3 +207,39 @@ def test_initialize_without_extra_identity_fields_adds_none(tmp_path: Path) -> N
     result = json.loads(_exchange(tmp_path, [])[1])["result"]
     assert result["serverInfo"] == {"name": "Raw", "version": "1"}
     assert "instructions" not in result
+
+
+def test_upstream_progress_reaches_the_agent_under_its_own_token(tmp_path: Path) -> None:
+    notifications: list[dict[str, Any]] = []
+    call = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "alpha", "arguments": {}, "_meta": {"progressToken": "agent-token"}},
+    }
+    lines = _exchange(
+        tmp_path,
+        [call],
+        upstream_args=["--progress"],
+        notifications=notifications,
+        await_notifications=2,
+    )
+
+    progress = [n["params"] for n in notifications if n["method"] == "notifications/progress"]
+    assert progress == [
+        {"progressToken": "agent-token", "progress": 1, "total": 2, "message": "step 1"},
+        {"progressToken": "agent-token", "progress": 2, "total": 2, "message": "step 2"},
+    ]
+    assert "error" not in json.loads(lines[2])
+
+
+def test_no_progress_is_sent_to_an_agent_that_did_not_ask_for_it(tmp_path: Path) -> None:
+    notifications: list[dict[str, Any]] = []
+    call = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "alpha", "arguments": {}},
+    }
+    _exchange(tmp_path, [call], upstream_args=["--progress"], notifications=notifications)
+    assert not [n for n in notifications if n["method"] == "notifications/progress"]

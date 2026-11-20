@@ -51,8 +51,14 @@ def build_proxy_server(
         ctx: ServerRequestContext[object, object],
         params: types.CallToolRequestParams,
     ) -> types.CallToolResult:
+        # Only an agent that sent a progress token can be told about progress.
+        wants_progress = "progress_token" in (params.meta or {})
         return await orchestrator.call_tool(
-            principal_of(ctx), params.name, params.arguments or {}, params.meta
+            principal_of(ctx),
+            params.name,
+            params.arguments or {},
+            params.meta,
+            ctx.session.report_progress if wants_progress else None,
         )
 
     async def verbatim_tool_definitions(
