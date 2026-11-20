@@ -23,6 +23,14 @@ from mcp_security_proxy.services.log import (
     OutcomeRecord,
 )
 
+# The SDK hands handlers `_meta` with Python names for the keys the protocol
+# defines; the audit records, and `audit_meta_allowlist`, use the wire names.
+_WIRE_META_KEYS = {"progress_token": "progressToken"}
+
+
+def _wire_meta(meta: Mapping[str, Any]) -> dict[str, Any]:
+    return {_WIRE_META_KEYS.get(key, key): value for key, value in meta.items()}
+
 
 def discovery_record(principal: Principal, discovery: Discovery) -> DiscoveryRecord:
     return DiscoveryRecord(
@@ -57,7 +65,7 @@ def decision_record(
         arguments=ArgumentDigest.of(arguments),
         operation=action.operation if action is not None else None,
         inspections=inspection_summaries(authorization.reports),
-        meta=MetaDigest.masked(meta, unmasked_meta_keys) if meta is not None else None,
+        meta=MetaDigest.masked(_wire_meta(meta), unmasked_meta_keys) if meta is not None else None,
     )
 
 

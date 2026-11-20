@@ -160,6 +160,16 @@ async def test_audit_record_masks_meta_except_allowlisted_keys(tmp_path: Path) -
     assert SYNTHETIC_SECRET not in (tmp_path / PROXY_AUDIT_LOG).read_text(encoding="utf-8")
 
 
+async def test_audit_log_names_the_progress_token_by_its_wire_key(tmp_path: Path) -> None:
+    config = _config(tmp_path, audit_meta_allowlist=["progressToken"])
+    async with proxy_session(config, tmp_path / "config.yaml") as session:
+        await session.call_tool("observe_meta", {}, meta={"progress_token": "tok-1"})
+
+    record = _decision(tmp_path)
+    assert record["meta"]["keys"] == ["progressToken"]
+    assert record["meta"]["values"] == {"progressToken": "tok-1"}
+
+
 async def test_audit_record_masks_all_meta_by_default(tmp_path: Path) -> None:
     async with proxy_session(_config(tmp_path), tmp_path / "config.yaml") as session:
         await session.call_tool("observe_meta", {}, meta={"eval_id": "run-7"})

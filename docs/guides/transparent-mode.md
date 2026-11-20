@@ -104,7 +104,8 @@ audit_meta_allowlist: [eval_id]
 ```
 
 Only string, number, and boolean values are recorded for an allowlisted key.
-A value of any other type is masked. A request without `_meta` produces the
+A value of any other type is masked. Keys are recorded under their wire names, so
+the progress token is `progressToken`. A request without `_meta` produces the
 same record as before. `audit_meta_allowlist` requires `transparent: true`.
 
 ## Server identity and instructions
