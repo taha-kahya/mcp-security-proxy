@@ -136,6 +136,31 @@ every report's enforcement.
 closed: an unconfigured, unreachable, or erroring approver blocks, so
 `require_approval` never degrades to `allow`.
 
+## Pure helpers
+
+Functions in the SDK that need no grant: they read only their arguments and
+do no I/O, so any defense can call them inside its deadline.
+
+**Destinations** (`classify_destination`) — *Input:* a URL, a host, or
+`host:port`. *Output:* `Destination`: `kind` (`metadata` | `loopback` |
+`link_local` | `private` | `reserved` | `external` | `name` | `invalid`),
+`form` (how the host was written: `name`, `ip`, `ip_obfuscated`,
+`ip_in_name`, `none`), `reason`, `host`, `address`, `scheme`, `port`, and
+`is_internal` (metadata, loopback, link-local or private). *Errors:* none;
+unparseable input is `invalid`. *Rules:*
+
+- Hosts are parsed as browsers parse them (WHATWG), so decimal, hex, octal
+  and shortened IPv4, percent-encoding, fullwidth digits, userinfo before
+  `@`, and IPv4 inside IPv6 (mapped, NAT64, 6to4) get the label of the
+  address they reach, with `form = ip_obfuscated`.
+- Cloud metadata addresses and names (AWS, GCP, Azure, Alibaba, Oracle,
+  Tencent) are `metadata`; known internal names (`localhost`, `*.internal`,
+  `*.local`, `*.home.arpa`, single labels) are internal; an internal address
+  spelled in a name (`10.0.0.5.nip.io`) is `ip_in_name`.
+- Any other hostname is `name`, never `external`: without DNS its address
+  is unknown, and a name can be made to resolve to an internal address (DNS
+  rebinding). Egress network policy is the control for that.
+
 ## Configuration
 
 ```yaml
