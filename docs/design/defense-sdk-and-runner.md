@@ -136,6 +136,31 @@ every report's enforcement.
 closed: an unconfigured, unreachable, or erroring approver blocks, so
 `require_approval` never degrades to `allow`.
 
+## Pure helpers
+
+Functions in the SDK that need no grant: they read only their arguments and
+do no I/O, so any defense can call them inside its deadline.
+
+**Destinations** (`classify_destination`) — *Input:* a URL, a host, or
+`host:port`. *Output:* `Destination`: `kind` (`metadata` | `loopback` |
+`link_local` | `private` | `reserved` | `external` | `name` | `invalid`),
+`form` (how the host was written: `name`, `ip`, `ip_obfuscated`,
+`ip_in_name`, `none`), `reason`, `host`, `address`, `scheme`, `port`, and
+`is_internal` (metadata, loopback, link-local or private). *Errors:* none;
+unparseable input is `invalid`. *Rules:*
+
+- Hosts are parsed as browsers parse them (WHATWG), so decimal, hex, octal
+  and shortened IPv4, percent-encoding, fullwidth digits, userinfo before
+  `@`, and IPv4 inside IPv6 (mapped, NAT64, 6to4) get the label of the
+  address they reach, with `form = ip_obfuscated`.
+- Cloud metadata addresses and names (AWS, GCP, Azure, Alibaba, Oracle,
+  Tencent) are `metadata`; known internal names (`localhost`, `*.internal`,
+  `*.local`, `*.home.arpa`, single labels) are internal; an internal address
+  spelled in a name (`10.0.0.5.nip.io`) is `ip_in_name`.
+- Any other hostname is `name`, never `external`: without DNS its address
+  is unknown, and a name can be made to resolve to an internal address (DNS
+  rebinding). Egress network policy is the control for that.
+
 ## Configuration
 
 ```yaml
@@ -182,8 +207,9 @@ enforcement: {on_failure: block}       # optional override, same shape
 - **Not inspected:** upstream protocol errors, notifications, resources,
   and prompts (resources and prompts are still not proxied at all).
 - **No scan capability, argument-aware tool adapters, `Registry.approved`,
-  or server-identity view** yet. V4 adds them one MR at a time
-  ([0021](../decisions/0021-v4-capability-first-delivery.md)).
+  or server-identity view** yet. V4 adds them as planned in the
+  [V4 Defense Plan](v4-defense-plan.md)
+  ([0024](../decisions/0024-v4-delivery-by-category-tracks.md)).
 - **Definitions are still read once at startup**, so temporal defenses have
   nothing to compare against until re-discovery exists.
 - **Deadlines** cannot interrupt a defense that blocks the event loop.
