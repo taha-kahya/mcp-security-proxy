@@ -125,9 +125,10 @@ outliers do not.
   defense effect and must be reported as one, not as noise.
 - The proxy must keep the upstream `InitializeResult`, which ADR 0016 says V1/V2
   discard, so transparent mode can report the upstream name and version.
-- The current code rebuilds definitions through SDK models, so equality of JSON
-  values must be tested. If the harness check fails, raw forwarding is the
-  fallback.
+- The SDK models drop fields they do not declare and reorder keys, so
+  transparent mode keeps each tool as the raw JSON object the upstream sent
+  and tests equality of JSON values. The same object is what defenses and the
+  Registry version see, so what the agent receives is what was inspected.
 - ADR 0020's discovery event is defined per tool. Prompts and resources need a
   new event definition, and their SDK addition needs a minor version bump
   (ADR 0021). Transparent mode is proxy configuration and needs no bump.

@@ -14,9 +14,12 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
+from typing import Any
 
-from mcp import ClientSession
+from mcp import ClientSession, types
 from mcp.server.lowlevel import Server
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
@@ -60,12 +63,72 @@ def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextMan
     )
 
 
-async def _discover_tools(sessions: Mapping[str, ClientSession]) -> RoutingTable:
-    routing_table = RoutingTable()
+class _RawToolPage(BaseModel):
+    """One `tools/list` page kept as plain JSON objects, so the upstream's key
+    order and any field the typed model does not declare survive."""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    tools: list[dict[str, Any]]
+    next_cursor: str | None = None
+
+
+async def _raw_tool_definitions(session: ClientSession) -> list[dict[str, Any]]:
+    """Every page of the upstream's tool list, fetched once, as raw JSON objects."""
+    tools: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    cursor: str | None = None
+    while True:
+        params = types.PaginatedRequestParams(cursor=cursor) if cursor else None
+        page = await session.send_request(types.ListToolsRequest(params=params), _RawToolPage)
+        tools.extend(page.tools)
+        cursor = page.next_cursor
+        if not cursor:
+            return tools
+        if cursor in seen:
+            raise ValueError("upstream tools/list repeated a pagination cursor")
+        seen.add(cursor)
+
+
+def _share_tool_listing_with_session(session: ClientSession, tools: list[types.Tool]) -> None:
+    """Give the session the listing already fetched, so it never lists again.
+
+    The SDK checks a tool result against the output schema cached by
+    `ClientSession.list_tools()`, and calls `list_tools()` itself the first time
+    it meets a tool it has not cached. Transparent mode fetches the raw list
+    without `list_tools()`, so without this a second `tools/list` would happen
+    at the first call, and an upstream could serve a different `outputSchema`
+    than the one inspected. The SDK has no public way to seed that cache, so
+    this uses the same private method `list_tools()` uses to fill it; a test
+    (`test_the_upstream_is_listed_once_*`) fails if the SDK stops behaving so.
+    """
+    session._absorb_tool_listing(types.ListToolsResult(tools=tools), complete=True)
+
+
+async def _discover_tools(
+    sessions: Mapping[str, ClientSession], *, transparent: bool = False
+) -> RoutingTable:
+    routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
-        discovered = await session.list_tools()
-        routing_table.register_server_tools(server_id, discovered.tools)
+        if transparent:
+            # One fetch: the typed tool is built from the same JSON object the
+            # agent will receive and the defenses and Registry will see.
+            raw = await _raw_tool_definitions(session)
+            tools = [types.Tool.model_validate(definition) for definition in raw]
+            _share_tool_listing_with_session(session, tools)
+            routing_table.register_server_tools(server_id, tools, raw)
+        else:
+            routing_table.register_server_tools(server_id, (await session.list_tools()).tools)
     return routing_table
+
+
+def _upstream_identity(
+    sessions: Mapping[str, ClientSession],
+) -> tuple[types.Implementation | None, str | None]:
+    """The sole upstream's `serverInfo` and `instructions`, as it reported them
+    on initialize. No `serverInfo` means the proxy keeps its own name."""
+    (session,) = sessions.values()  # transparent mode has exactly one (see ProxyConfig)
+    return session.server_info, session.instructions
 
 
 def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
@@ -121,7 +184,7 @@ async def build_app(
             upstream.id: await stack.enter_async_context(_connect_upstream(upstream))
             for upstream in config.servers
         }
-        routing_table = await _discover_tools(sessions)
+        routing_table = await _discover_tools(sessions, transparent=config.transparent)
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
 
@@ -131,6 +194,22 @@ async def build_app(
             control=build_control(security, registry, history, state),
             audit=audit,
             correlation=CorrelationTracker(),
+            forward_meta=config.transparent,
+            unmasked_meta_keys=config.audit_meta_allowlist,
         )
-        server = build_proxy_server(orchestrator, agent_facing.identity)
+        server_info, instructions = (
+            _upstream_identity(sessions) if config.transparent else (None, None)
+        )
+        if instructions:
+            logger.warning(
+                "transparent mode forwards the upstream's server instructions unchanged "
+                "(ADR 0023 decision 4); they are not inspected"
+            )
+        server = build_proxy_server(
+            orchestrator,
+            agent_facing.identity,
+            server_info,
+            instructions,
+            verbatim_tools=config.transparent,
+        )
         yield ProxyApp(server, agent_facing.serve)

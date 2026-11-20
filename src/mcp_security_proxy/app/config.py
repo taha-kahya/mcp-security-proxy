@@ -85,6 +85,22 @@ class ProxyConfig(BaseModel):
     defenses_path: Path | None = None
     defense_deadline_seconds: float = Field(default=2.0, gt=0)
     state: StateConfig = Field(default_factory=StateConfig)
+    # Transparent mode (0023): one upstream, bare tool names, upstream server
+    # identity, and request `_meta` forwarded. Opt-in; the default is unchanged.
+    transparent: bool = False
+    # `_meta` keys whose string, number, or boolean values the audit record
+    # keeps unmasked (0013, 0023). Only meaningful in transparent mode.
+    audit_meta_allowlist: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _transparent_mode_fronts_exactly_one_server(self) -> ProxyConfig:
+        if self.transparent and len(self.servers) != 1:
+            raise ValueError(
+                f"transparent mode requires exactly one upstream server, got {len(self.servers)}"
+            )
+        if self.audit_meta_allowlist and not self.transparent:
+            raise ValueError("audit_meta_allowlist requires transparent mode")
+        return self
 
     @model_validator(mode="after")
     def _require_identity_for_agent_transport(self) -> ProxyConfig:
