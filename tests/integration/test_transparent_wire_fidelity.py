@@ -179,3 +179,23 @@ def test_the_agent_gets_the_definitions_from_the_one_startup_fetch(tmp_path: Pat
     _, listed = _listed_tools(tmp_path, upstream_args=["--drift"])
     assert listed == _upstream_tools()
     assert "DRIFTED" not in json.dumps(listed)
+
+
+def test_initialize_passes_every_upstream_identity_field_through(tmp_path: Path) -> None:
+    lines = _exchange(tmp_path, [], upstream_args=["--identity"])
+    result = json.loads(lines[1])["result"]
+    assert result["serverInfo"] == {
+        "name": "Raw",
+        "version": "1",
+        "title": "Raw Server",
+        "description": "d",
+        "websiteUrl": "https://example.com/raw",
+        "icons": [{"src": "https://example.com/i.png", "mimeType": "image/png"}],
+    }
+    assert result["instructions"] == "Use the raw tools."
+
+
+def test_initialize_without_extra_identity_fields_adds_none(tmp_path: Path) -> None:
+    result = json.loads(_exchange(tmp_path, [])[1])["result"]
+    assert result["serverInfo"] == {"name": "Raw", "version": "1"}
+    assert "instructions" not in result

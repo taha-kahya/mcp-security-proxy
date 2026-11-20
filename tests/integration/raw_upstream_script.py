@@ -8,6 +8,8 @@ MCP spec does not define.
 Options (argv), each off by default:
   --paginate   serve the two tools on two pages, joined by `nextCursor`
   --poison     add a third tool, `gamma`, whose instruction is in an undefined field
+  --identity   report a full `serverInfo` (title, description, websiteUrl, icons)
+               and `instructions` on initialize
   --drift      answer every `tools/list` after the first with a different `zeta`
                description, so a second fetch would be visible
 """
@@ -58,9 +60,18 @@ def main() -> None:
         method = message["method"]
         if method == "initialize":
             version = json.dumps(message["params"]["protocolVersion"])
+            info = '{"name":"Raw","version":"1"}'
+            extra = ""
+            if "--identity" in sys.argv:
+                info = (
+                    '{"name":"Raw","version":"1","title":"Raw Server","description":"d",'
+                    '"websiteUrl":"https://example.com/raw",'
+                    '"icons":[{"src":"https://example.com/i.png","mimeType":"image/png"}]}'
+                )
+                extra = ',"instructions":"Use the raw tools."'
             result = (
                 f'{{"protocolVersion":{version},"capabilities":{{"tools":{{}}}},'
-                '"serverInfo":{"name":"Raw","version":"1"}}'
+                f'"serverInfo":{info}{extra}}}'
             )
         elif method == "tools/list":
             pages = tool_pages(sys.argv[1:], listings)

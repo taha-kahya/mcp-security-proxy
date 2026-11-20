@@ -106,11 +106,13 @@ async def _discover_tools(
     return routing_table
 
 
-def _upstream_identity(sessions: Mapping[str, ClientSession]) -> types.Implementation | None:
-    """The sole upstream's name and version, as it reported them on initialize.
-    None when it reported none, in which case the proxy keeps its own name."""
+def _upstream_identity(
+    sessions: Mapping[str, ClientSession],
+) -> tuple[types.Implementation | None, str | None]:
+    """The sole upstream's `serverInfo` and `instructions`, as it reported them
+    on initialize. No `serverInfo` means the proxy keeps its own name."""
     (session,) = sessions.values()  # transparent mode has exactly one (see ProxyConfig)
-    return session.server_info
+    return session.server_info, session.instructions
 
 
 def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
@@ -179,10 +181,17 @@ async def build_app(
             forward_meta=config.transparent,
             unmasked_meta_keys=config.audit_meta_allowlist,
         )
+        server_info, instructions = _upstream_identity(sessions) if config.transparent else (None, None)
+        if instructions:
+            logger.warning(
+                "transparent mode forwards the upstream's server instructions unchanged "
+                "(ADR 0023 decision 4); they are not inspected"
+            )
         server = build_proxy_server(
             orchestrator,
             agent_facing.identity,
-            _upstream_identity(sessions) if config.transparent else None,
+            server_info,
+            instructions,
             verbatim_tools=config.transparent,
         )
         yield ProxyApp(server, agent_facing.serve)

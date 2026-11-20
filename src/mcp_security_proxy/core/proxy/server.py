@@ -25,10 +25,13 @@ def build_proxy_server(
     orchestrator: ProxyOrchestrator,
     identity: IdentityResolver,
     server_info: types.Implementation | None = None,
+    instructions: str | None = None,
     verbatim_tools: bool = False,
 ) -> Server:
-    """`server_info` is the upstream's identity in transparent mode; otherwise
-    the proxy reports its own fixed name. `verbatim_tools` (transparent mode)
+    """`server_info` is the upstream's identity in transparent mode (name,
+    version, title, description, website URL, icons), and `instructions` its
+    instructions text; otherwise the proxy reports its own fixed name.
+    `verbatim_tools` (transparent mode)
     lists each tool as the upstream's own JSON, key order and unknown fields
     included."""
 
@@ -71,10 +74,21 @@ def build_proxy_server(
             tools.append(entry if wire is None else wire)
         return {**result, "tools": tools}
 
-    name, version = (server_info.name, server_info.version) if server_info else (_NAME, "")
+    server_kwargs: dict[str, Any] = (
+        {
+            "name": server_info.name,
+            "version": server_info.version,
+            "title": server_info.title,
+            "description": server_info.description,
+            "website_url": server_info.website_url,
+            "icons": server_info.icons,
+            "instructions": instructions,
+        }
+        if server_info
+        else {"name": _NAME}
+    )
     server: Server = Server(
-        name=name,
-        version=version,
+        **server_kwargs,
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
     )
