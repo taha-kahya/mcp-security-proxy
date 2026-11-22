@@ -6,7 +6,8 @@ an HTML comment, zero-width or bidirectional characters, Unicode tag
 characters, terminal escapes, a base64 blob that decodes to text, or padding
 that pushes text out of view. Every text value is inspected at any depth,
 keys included (`name`, `description`, every JSON Schema keyword, `_meta`,
-`annotations`), and each finding points at the exact field.
+`annotations`, and fields no schema defines, such as `x-notes`), and each
+finding points at the exact field.
 
 Instructions are reported here only when they are concealed: revealed by
 decoding, spelled with lookalike letters, or inside hidden content. That is
