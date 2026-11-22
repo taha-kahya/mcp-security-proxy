@@ -67,8 +67,9 @@ each one:
 - argument-aware tool adapters: `resource`, `destination`, `sensitivity` (C1)
 - `RegistryView.tool_ids()` (D4)
 - re-discovery and the approved version of a definition (T2)
-- a server-identity view and `ServerRecord.integrity` (E1)
+- a server-identity view (ADR 0022) and `ServerRecord.integrity` (E1)
 - inspection of errors and notifications (I3)
+- inspection of initialize instructions, prompts and resources (I4)
 - redaction outcomes for definitions (D5) and for calls and results (C4)
 
 Check `src/mcp_security_proxy/sdk/` for what exists now; some of these may
@@ -212,7 +213,7 @@ never change the test.
   other-category changes. Capability changes go in the plan MR that owns
   them, together with that MR's defense (ADR 0024).
 - Some plan MRs ship more than one piece. D2 and I1 ship inside S2, and
-  C1, D4, T2, E1 and I3 each carry a core change and a defense. Follow the
+  C1, D4, T2, E1, I3 and I4 each carry a core change and a defense. Follow the
   plan rather than splitting them.
 - In the MR description, give the plan MR id, and list the attacks covered,
   the benign twins, what's deliberately not covered, and any new signal

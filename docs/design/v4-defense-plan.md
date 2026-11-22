@@ -34,7 +34,7 @@ that deliver it.
 
 | Attack type | Arbitus | NVIDIA SkillSpector | Our improvement |
 |---|---|---|---|
-| **Hidden instructions in tool metadata**<br>An HTML comment, zero-width text or a base64 blob in a description tells the agent to read a key file. | *Not covered.* Its threat model lists a server that lies in its descriptions as not mitigated. | TP1: HTML and Markdown comments, zero-width characters, `data:` URIs, base64 blobs that decode to text. P9: whitespace padding that pushes text off-screen. (`mcp_tool_poisoning.py`) | **[D2, S2, D5]**<br>• Inspect every text value at any depth, including all JSON Schema keywords and `_meta`, with a JSON Pointer per finding.<br>• Match on decoded variants (Arbitus idea), so encoding can't hide a phrase.<br>• Staged scan: rules, then a local classifier, then a semantic confirmation of only what was flagged.<br>• Redact the flagged field instead of hiding the whole tool. |
+| **Hidden instructions in tool metadata**<br>An HTML comment, zero-width text or a base64 blob in a description tells the agent to read a key file. | *Not covered.* Its threat model lists a server that lies in its descriptions as not mitigated. | TP1: HTML and Markdown comments, zero-width characters, `data:` URIs, base64 blobs that decode to text. P9: whitespace padding that pushes text off-screen. (`mcp_tool_poisoning.py`) | **[D2, S2, D5]**<br>• Inspect every text value at any depth, including all JSON Schema keywords, `_meta`, and fields no schema defines (such as `x-notes`), since defenses receive the raw definition. A JSON Pointer per finding.<br>• Match on decoded variants (Arbitus idea), so encoding can't hide a phrase.<br>• Staged scan: rules, then a local classifier, then a semantic confirmation of only what was flagged.<br>• Redact the flagged field instead of hiding the whole tool. |
 | **Injection in parameter schemas**<br>A parameter description says “ignore previous instructions”; a `default` holds a shell command. | Has an injection phrase list (override, role change, ChatML and `[INST]` tokens), but applies it only to call arguments and responses. (`prompt_injection.rs`) | TP3: override phrases, system-prompt tokens, exfiltration verbs, descriptions over 500 characters, external URLs or shell commands in `default`. | **[D3]**<br>• Also check `examples`, `enum` and non-standard keywords, not only descriptions and defaults.<br>• Description length is a low-severity hint, never a block on its own.<br>• Use SkillSpector's prohibition-context idea so a benign “never send passwords” stays clean. |
 | **Tool name spoofing**<br>`reаd_file` with a Cyrillic “а” looks identical to another server's `read_file`. | *Not covered.* | TP2: homoglyphs from a 20-character map, mixed scripts in one name, bidirectional override characters. | **[D4]**<br>• Use the full Unicode confusables table, not a hand-picked map.<br>• Compare each name against all other exposed tools through a new `RegistryView.tool_ids()`.<br>• Our server-scoped tool ids already stop routing confusion, so the remaining risk is the model choosing the wrong tool, which this rule reports. |
 | **Claimed behaviour differs from real behaviour**<br>A tool marked `readOnlyHint: true` actually sends messages. | *Not covered.* | TP4: an LLM compares the description with the source code. LP1–LP4: declared permissions compared with what the code does. Both need the code. | **[D1]**<br>• A runtime version that needs no source code: compare the server's annotations with the operator's classification in `tools.yaml`.<br>• Deterministic, no model, and buildable with today's SDK. |
@@ -111,6 +111,7 @@ flowchart LR
     I1["I1 · result_injection"]
     I2["I2 · argument_propagation"]
     I3["I3 · errors and notifications"]
+    I4["I4 · instructions, prompts, resources"]
   end
   subgraph CT["Cross-tool"]
     C1["C1 · adapters + exfiltration"]
@@ -140,6 +141,7 @@ flowchart LR
   C3 --> C4
   D2 --> D5
   I1 --> I3
+  I1 --> I4
   E1 --> E2
 ```
 
@@ -160,7 +162,7 @@ that can start as soon as S1 merges.
 |---|---|---|---|---|
 | **Shared** (lead or SDK owner, done first) | S1 | S2 ★, S3 ★ | S4 | S5 |
 | **Direct** (tool and server metadata) | D0 | D1 ★, D2 | D3, D4 | D5 |
-| **Indirect** (content the agent reads) | I0 | I1 | I2 | I3 |
+| **Indirect** (content the agent reads) | I0 | I1 | I2, I4 | I3 |
 | **Cross-tool** (combinations of calls) | C0 | C1 ★ | C2, C3 | C4 |
 | **Temporal** (change over time) | T0 | T1 ★, T2 ★ | Nothing planned | Invalidating approvals moves to V5 |
 | **Environment** (server launch and reach) | E0 | E1 ★ | E2 | Nothing planned |
@@ -176,7 +178,7 @@ that can start as soon as S1 merges.
 | S5 | core | Links each audit record to the previous one's hash, so tampering can be detected. | S1 only | — |
 | D0 | docs | Describes how direct attacks work, with public examples and their benign twins. | S1 | — |
 | D1 ★ | skill | Flags tools whose annotations, such as read-only, contradict the operator's classification. | S1 only | — |
-| D2 | skill | Flags hidden comments, invisible characters, encoded blobs and padding anywhere in a tool definition. | ships in S2 | D5 |
+| D2 | skill | Flags hidden comments, invisible characters, encoded blobs and padding anywhere in a tool definition, including fields no schema defines. | ships in S2 | D5 |
 | D3 | skill | Flags injection phrases and suspicious default values in input schemas. | S2 | — |
 | D4 | core, skill | Lets defenses list all tool ids, and flags names that look like another tool's name. | S2 | — |
 | D5 | core | Lets policy replace a flagged field with a proxy notice instead of hiding the whole tool. | D2 | — |
@@ -184,6 +186,7 @@ that can start as soon as S1 merges.
 | I1 | skill | Scans each text block of a tool result for injected instructions; other block types are reported as unsupported. | ships in S2 | I3 |
 | I2 | skill | Scans call arguments for injected text being written somewhere another agent will read it. | S2 | — |
 | I3 | core, skill | Sends errors and notifications through inspection and extends I1 to them. | I1 | — |
+| I4 | core, skill | Proxies the server's initialize `instructions`, prompts and resources, each through its own inspection stage and never forwarded uninspected by default, and extends I1 to them ([ADR 0023](../decisions/0023-evaluation-readiness-and-transparent-mode.md), decision 7). | I1 | — |
 | C0 | docs | Describes cross-tool attacks such as read-then-exfiltrate, with public examples and their benign twins. | S1 | — |
 | C1 ★ | core, skill | Teaches tool adapters to read resource, destination and sensitivity from arguments, and flags a sensitive read followed by an external send. | S1 only | C2 · C3 |
 | C2 | skill | Flags calls whose destination is internal or a cloud metadata endpoint. | C1 · S3 | — |
@@ -193,7 +196,7 @@ that can start as soon as S1 merges.
 | T1 ★ | skill | Limits how many calls a task can make within a time window. | S1 only | — |
 | T2 ★ | core, skill | Refreshes definitions when a server announces a change, and grades each change against the approved version. | S1 only | — |
 | E0 | docs | Describes supply-chain and connection attacks, plus a runbook for vetting a server before adding it. | S1 | — |
-| E1 ★ | core, skill | Checks stdio server binaries against a pinned hash at startup, shows server identity to defenses, and flags unverified servers. | S1 only | E2 |
+| E1 ★ | core, skill | Checks stdio server binaries against a pinned hash at startup and flags unverified servers. The server-identity view is ADR 0022's (proposed in #8), if accepted; E1 adds the hash result to it as `integrity` rather than designing a second view. | S1 only | E2 |
 | E2 | skill | Flags remote servers reached over plain HTTP or at internal addresses. | E1 · S3 | — |
 
 ### Coordination
@@ -201,8 +204,17 @@ that can start as soon as S1 merges.
 - **C3's signal** is a contract between producer and consumer; the Cross-tool
   and Indirect owners both approve its ADR.
 - **Shared core files.** D5 and C4 both change Guard and policy enforcement,
-  and S2, S3, C1, D4 and E1 each bump the SDK minor version. The lead orders
+  and S2, S3, C1, D4, E1 and I4 each bump the SDK minor version. The lead orders
   or rebases these MRs.
+- **Lookalike names.** D4 and ADR 0022's `.lookalike_name` rule both compare
+  names for confusable characters. Both use S2's lookalike detection instead
+  of separate code: D4 covers tool names, ADR 0022's defense covers the
+  names servers report.
+- **Redaction in transparent mode.** D5 and C4 change what the agent
+  receives. In transparent mode ([ADR 0023](../decisions/0023-evaluation-readiness-and-transparent-mode.md))
+  each redaction is a defense decision, as its decision 2 allows: recorded
+  in the audit, and reported in evaluation as a defense effect, never as
+  noise.
 - **S2 has two authors.** The Direct and Indirect owners build it together,
   since D2 and I1 ship inside it.
 
@@ -219,6 +231,12 @@ that can start as soon as S1 merges.
 - Record which classes of attack were missed, update `docs/attacks/` from
   public reasoning about those classes, then build the next version. Never fix
   a defense by copying a missed payload.
+- Each round runs on cohorts the design has not been adjusted against. Once
+  a round's results have shaped the next version, those cohorts are no
+  longer blind. Fresh cohorts come from the research repository, which owns
+  them (ADR 0023, decision 5). A round that reuses cohorts labels its
+  results *development, not held-out*, and they are never reported as
+  held-out performance.
 - Accepted when every rule has malicious and matched benign cases, defenses
   pass alone and together, and unknown content is never treated as clean.
 
