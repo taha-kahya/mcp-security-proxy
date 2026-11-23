@@ -7,7 +7,7 @@ on core types such as `Decision`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import Any
 
 from mcp_security_proxy.core.proxy.control import CallAuthorization, DeliveryReview, Discovery
@@ -19,8 +19,17 @@ from mcp_security_proxy.services.log import (
     DeliveryRecord,
     DiscoveryRecord,
     InspectionSummary,
+    MetaDigest,
     OutcomeRecord,
 )
+
+# The SDK hands handlers `_meta` with Python names for the keys the protocol
+# defines; the audit records, and `audit_meta_allowlist`, use the wire names.
+_WIRE_META_KEYS = {"progress_token": "progressToken"}
+
+
+def _wire_meta(meta: Mapping[str, Any]) -> dict[str, Any]:
+    return {_WIRE_META_KEYS.get(key, key): value for key, value in meta.items()}
 
 
 def discovery_record(principal: Principal, discovery: Discovery) -> DiscoveryRecord:
@@ -34,7 +43,11 @@ def discovery_record(principal: Principal, discovery: Discovery) -> DiscoveryRec
 
 
 def decision_record(
-    authorization: CallAuthorization, requested_tool: str, arguments: Mapping[str, Any]
+    authorization: CallAuthorization,
+    requested_tool: str,
+    arguments: Mapping[str, Any],
+    meta: Mapping[str, Any] | None = None,
+    unmasked_meta_keys: Collection[str] = (),
 ) -> DecisionRecord:
     principal, decision = authorization.principal, authorization.decision
     routed, action = authorization.routed, authorization.action
@@ -52,6 +65,7 @@ def decision_record(
         arguments=ArgumentDigest.of(arguments),
         operation=action.operation if action is not None else None,
         inspections=inspection_summaries(authorization.reports),
+        meta=MetaDigest.masked(_wire_meta(meta), unmasked_meta_keys) if meta is not None else None,
     )
 
 

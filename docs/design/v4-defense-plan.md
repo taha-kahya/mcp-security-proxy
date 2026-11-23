@@ -196,7 +196,7 @@ that can start as soon as S1 merges.
 | T1 ★ | skill | Limits how many calls a task can make within a time window. | S1 only | — |
 | T2 ★ | core, skill | Refreshes definitions when a server announces a change, and grades each change against the approved version. | S1 only | — |
 | E0 | docs | Describes supply-chain and connection attacks, plus a runbook for vetting a server before adding it. | S1 | — |
-| E1 ★ | core, skill | Checks stdio server binaries against a pinned hash at startup and flags unverified servers. The server-identity view is ADR 0022's (proposed in #8), if accepted; E1 adds the hash result to it as `integrity` rather than designing a second view. | S1 only | E2 |
+| E1 ★ | core, skill | Checks stdio server binaries against a pinned hash at startup and flags unverified servers. The server-identity view is [ADR 0022](../decisions/0022-server-identity-view-and-registration-defense.md)'s, if accepted; E1 adds the hash result to it as `integrity` rather than designing a second view. | S1 only | E2 |
 | E2 | skill | Flags remote servers reached over plain HTTP or at internal addresses. | E1 · S3 | — |
 
 ### Coordination

@@ -12,12 +12,21 @@ from mcp_security_proxy.services.log import AuditRecord, AuditWriteError
 class FakeUpstream:
     def __init__(self, behavior: Any = None) -> None:
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.metas: list[Any] = []
+        self.progress_callbacks: list[Any] = []
         self._behavior = behavior
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        meta: Any = None,
+        progress_callback: Any = None,
     ) -> types.CallToolResult:
         self.calls.append((name, arguments))
+        self.metas.append(meta)
+        self.progress_callbacks.append(progress_callback)
         if isinstance(self._behavior, BaseException):
             raise self._behavior
         if callable(self._behavior):

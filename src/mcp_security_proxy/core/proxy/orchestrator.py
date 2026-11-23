@@ -11,7 +11,7 @@ modules that do, and it is the only place that dispatches upstream.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from typing import Any, Protocol
 
@@ -49,11 +49,22 @@ logger = logging.getLogger(__name__)
 _OUTCOME_UNCERTAIN_ERROR_CODES = frozenset({types.CONNECTION_CLOSED, types.REQUEST_TIMEOUT})
 
 
+class ProgressFnT(Protocol):
+    """Receives an upstream `notifications/progress` for one call."""
+
+    async def __call__(self, progress: float, total: float | None, message: str | None) -> None: ...
+
+
 class ToolCaller(Protocol):
     """The one upstream capability the orchestrator needs (`ClientSession` satisfies it)."""
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        meta: types.RequestParamsMeta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult: ...
 
 
@@ -66,12 +77,18 @@ class ProxyOrchestrator:
         control: ProxyControl,
         audit: AuditSink,
         correlation: CorrelationTracker,
+        forward_meta: bool = False,
+        unmasked_meta_keys: Collection[str] = (),
     ) -> None:
         self._routing = routing
         self._upstreams = upstreams
         self._control = control
         self._audit = audit
         self._correlation = correlation
+        # `_meta` is opaque: it is forwarded and recorded, never consulted by
+        # identity, policy, or any defense (0011). Off outside transparent mode.
+        self._forward_meta = forward_meta
+        self._unmasked_meta_keys = frozenset(unmasked_meta_keys)
 
     async def list_tools(self, principal: Principal) -> list[types.Tool]:
         with _state_required():
@@ -80,9 +97,24 @@ class ProxyOrchestrator:
         await self._record_or_refuse(discovery_record(principal, discovery))
         return [routed.external_tool() for routed in discovery.visible]
 
+    def wire_definition(self, external_name: str) -> Mapping[str, Any] | None:
+        """The upstream's own JSON for an advertised tool, when captured."""
+        routed = self._routing.find(external_name)
+        return routed.external_wire() if routed else None
+
     async def call_tool(
-        self, principal: Principal, external_name: str, arguments: dict[str, Any]
+        self,
+        principal: Principal,
+        external_name: str,
+        arguments: dict[str, Any],
+        meta: types.RequestParamsMeta | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> types.CallToolResult:
+        """`progress_callback` relays the upstream's progress updates for this
+        call to the agent, which asked for them with a progress token. It is
+        used only where `_meta` is forwarded (transparent mode)."""
+        meta = meta if self._forward_meta else None
+        progress_callback = progress_callback if self._forward_meta else None
         routed = self._routing.find(external_name)
         with _state_required():
             async with self._control.serialized(principal):
@@ -90,13 +122,15 @@ class ProxyOrchestrator:
                     principal, routed, arguments, new_correlation_id()
                 )
                 await self._record_or_refuse(
-                    decision_record(authorization, external_name, arguments)
+                    decision_record(
+                        authorization, external_name, arguments, meta, self._unmasked_meta_keys
+                    )
                 )
                 if not authorization.permits_dispatch:
                     return self._deny(external_name, authorization)
                 operation = await self._control.reserve(authorization)
 
-        result = await self._dispatch(authorization, operation, arguments)
+        result = await self._dispatch(authorization, operation, arguments, meta, progress_callback)
         return await self._deliver(authorization, result)
 
     @staticmethod
@@ -113,6 +147,8 @@ class ProxyOrchestrator:
         authorization: CallAuthorization,
         operation: OperationRecord,
         arguments: dict[str, Any],
+        meta: types.RequestParamsMeta | None,
+        progress_callback: ProgressFnT | None,
     ) -> types.CallToolResult:
         routed = authorization.routed
         if routed is None:
@@ -123,9 +159,10 @@ class ProxyOrchestrator:
         status, tool_error = OperationStatus.UNKNOWN, None
         try:
             upstream = self._upstreams[routed.server_id]
-            result = ensure_call_tool_result(
-                routed.external_name, await upstream.call_tool(routed.bare_name, arguments)
+            call = upstream.call_tool(
+                routed.bare_name, arguments, meta=meta, progress_callback=progress_callback
             )
+            result = ensure_call_tool_result(routed.external_name, await call)
             status, tool_error = OperationStatus.COMPLETED, result.is_error
             return result
         except MCPError as exc:

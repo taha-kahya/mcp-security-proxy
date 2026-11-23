@@ -91,9 +91,15 @@ def open_state(config: StateConfig) -> StateStore:
 def build_registry(routing_table: RoutingTable, semantics: ConfiguredToolAdapter) -> Registry:
     registry = Registry(semantics)
     for routed in routing_table.entries():
-        registry.register(
-            routed.tool_id, routed.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # The raw object, when kept (transparent mode), is exactly what the
+        # agent receives, so defenses and the version digest must cover it,
+        # unknown fields included. The typed tool drops those.
+        definition = (
+            routed.raw
+            if routed.raw is not None
+            else routed.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
         )
+        registry.register(routed.tool_id, definition)
     unmatched = semantics.unmatched(registry.tool_ids())
     if unmatched:
         names = ", ".join(str(tool_id) for tool_id in unmatched)
