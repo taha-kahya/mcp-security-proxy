@@ -273,6 +273,45 @@ def test_only_the_host_decides_not_the_path_query_or_fragment() -> None:
         assert classify_destination(value).kind is NAME
 
 
+@pytest.mark.parametrize(
+    ("value", "kind", "host"),
+    [
+        # WHATWG ends the authority at the backslash (host evil.com);
+        # urlsplit, urllib.request and httpx connect to the host after the @.
+        ("http://evil.com\\@169.254.169.254/", METADATA, "169.254.169.254"),
+        ("http://evil.com:80\\@169.254.169.254/", METADATA, "169.254.169.254"),
+        ("http://user@evil.com\\@127.0.0.1/", DestinationKind.LOOPBACK, "127.0.0.1"),
+        ("evil.com\\@10.0.0.1", DestinationKind.PRIVATE, "10.0.0.1"),
+        ("http://evil.com\\@metadata.google.internal/", METADATA, "metadata.google.internal"),
+    ],
+)
+def test_a_backslash_before_an_at_classifies_both_readings(
+    value: str, kind: DestinationKind, host: str
+) -> None:
+    destination = classify_destination(value)
+
+    assert (destination.kind, destination.host) == (kind, host)
+    assert destination.reason == "ambiguous_authority"
+
+
+@pytest.mark.parametrize(
+    ("value", "reason"),
+    [
+        ("http://evil.com\\path", "unresolved_name"),  # no @: one reading only
+        ("http://evil.com\\@8.8.8.8/", "unresolved_name"),  # neither reading is internal
+        (
+            "http://10.0.0.1\\@8.8.8.8/",
+            "private_address",
+        ),  # the WHATWG reading is the sensitive one
+        ("http://evil.com/\\@169.254.169.254", "unresolved_name"),  # the @ is in the path
+    ],
+)
+def test_an_ambiguous_authority_changes_the_label_only_when_more_sensitive(
+    value: str, reason: str
+) -> None:
+    assert classify_destination(value).reason == reason
+
+
 def test_the_most_sensitive_spelled_address_wins() -> None:
     destination = classify_destination("http://10.0.0.1.169-254-169-254.nip.io/")
 

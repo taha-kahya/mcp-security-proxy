@@ -5,8 +5,10 @@ link-local, private, reserved, external, an unresolved name, or invalid. It
 does no DNS lookup or other I/O, so a defense can call it inside its
 deadline, and it never raises on bad input.
 
-Hosts are parsed the way browsers and HTTP clients parse them (the WHATWG URL
-host parser), so a disguised address gets the same label as the plain one.
+Hosts are parsed with the WHATWG URL rules that browsers follow, so a
+disguised address gets the same label as the plain one. Python's clients
+don't all follow WHATWG: where a URL can be read two ways, both hosts are
+classified and the more sensitive label wins (see `ambiguous_authority`).
 Each of these is `metadata`:
 
     http://169.254.169.254/        http://2852039166/
@@ -14,11 +16,13 @@ Each of these is `metadata`:
     http://169.254.43518/          http://169%2e254%2e169%2e254/
     http://user@169.254.169.254/   http://[::ffff:169.254.169.254]/
     http://169.254.169.254.nip.io/ http:\\\\169.254.169.254
+    http://evil.com\\@169.254.169.254/
 
 What text can't tell: where a hostname resolves. `api.example.com` is
 labeled `name`, never `external`, because a name an attacker controls can
-resolve to an internal address (DNS rebinding). Network egress policy is the
-only control for that; this classifier is a check on top of it.
+resolve to an internal address (DNS rebinding), and an external address
+can redirect to an internal one. Network egress policy is the only control
+for either; this classifier is a check on top of it.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ import ipaddress
 import re
 import unicodedata
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network
 from urllib.parse import unquote
@@ -98,9 +102,26 @@ class Destination:
 def classify_destination(value: str) -> Destination:
     """Label a URL (`https://host:443/path`), a host, or `host:port`."""
     try:
-        target = _parse(value)
+        target, *alternates = _parse(value)
     except _InvalidError as error:
         return Destination(DestinationKind.INVALID, HostForm.NONE, error.reason)
+    destination = _destination(target)
+    for alternate in alternates:
+        other = _destination(alternate)
+        if _more_sensitive(other, destination):
+            return replace(other, reason="ambiguous_authority")
+    return destination
+
+
+def _more_sensitive(candidate: Destination, current: Destination) -> bool:
+    if not candidate.is_internal:
+        return False
+    if not current.is_internal:
+        return True
+    return _INTERNAL_PRIORITY.index(candidate.kind) < _INTERNAL_PRIORITY.index(current.kind)
+
+
+def _destination(target: _Target) -> Destination:
     if target.host is None:
         return Destination(
             DestinationKind.LOOPBACK, HostForm.NONE, "local_file", scheme=target.scheme
@@ -128,6 +149,7 @@ _SCHEME = re.compile(r"[a-z][a-z0-9+.-]*:", re.IGNORECASE)
 # `host:8080` or `host:` looks like a scheme but is a host and a port.
 _PORT_ONLY = re.compile(r"(?:[0-9]+(?:[/?#\\]|$)|$)")
 _AUTHORITY_END = re.compile(r"[/?#\\]")
+_LENIENT_AUTHORITY_END = re.compile(r"[/?#]")
 _SPECIAL_SCHEMES = frozenset({"http", "https", "ws", "wss", "ftp"})
 _STRIPPED = "".join(chr(code) for code in range(0x21))  # C0 controls and space
 _REMOVED = str.maketrans("", "", "\t\n\r")
@@ -151,27 +173,41 @@ class _Target:
     encoded: bool  # percent-encoding or Unicode compatibility forms in the host
 
 
-def _parse(value: str) -> _Target:
+def _parse(value: str) -> list[_Target]:
+    """The WHATWG reading first, then any other reading a client may make."""
     text = value.strip(_STRIPPED).translate(_REMOVED)
     if not text:
         raise _InvalidError("empty")
     if _bare_ipv6(text):
-        return _Target(None, *_host_and_port(f"[{text}]"))
+        return [_Target(None, *_host_and_port(f"[{text}]"))]
     scheme_match = _SCHEME.match(text)
     if scheme_match is None or _PORT_ONLY.match(text, scheme_match.end()):
-        return _Target(None, *_host_and_port(_authority(text)))
+        return _targets(None, text)
     scheme = scheme_match.group()[:-1].lower()
     rest = text[scheme_match.end() :]
     if scheme in _SPECIAL_SCHEMES:
-        return _Target(scheme, *_host_and_port(_authority(rest.lstrip("/\\"))))
+        return _targets(scheme, rest.lstrip("/\\"))
     if not rest.startswith(("//", "\\\\", "/\\", "\\/")):
         if scheme == "file":
-            return _Target(scheme, None, None, False)
+            return [_Target(scheme, None, None, False)]
         raise _InvalidError("no_host")
-    authority = _authority(rest[2:])
-    if scheme == "file" and authority.lower() in ("", "localhost"):
-        return _Target(scheme, None, None, False)
-    return _Target(scheme, *_host_and_port(authority))
+    if scheme == "file" and _authority(rest[2:]).lower() in ("", "localhost"):
+        return [_Target(scheme, None, None, False)]
+    return _targets(scheme, rest[2:])
+
+
+def _targets(scheme: str | None, text: str) -> list[_Target]:
+    """WHATWG ends the authority at a backslash. `urlsplit`, `urllib.request`
+    and httpx don't, so for `evil.com\\@169.254.169.254` they connect to the
+    host after the `@`. That host is returned too, as an alternate."""
+    targets = [_Target(scheme, *_host_and_port(_authority(text)))]
+    lenient = _lenient_authority(text)
+    if lenient is not None:
+        try:
+            targets.append(_Target(scheme, *_host_and_port(lenient)))
+        except _InvalidError:
+            pass  # no client connects to an unparseable host
+    return targets
 
 
 def _bare_ipv6(text: str) -> bool:
@@ -188,6 +224,17 @@ def _authority(text: str) -> str:
     end = _AUTHORITY_END.search(text)
     authority = text[: end.start()] if end else text
     return authority.rpartition("@")[2]  # clients connect to what follows the last @
+
+
+def _lenient_authority(text: str) -> str | None:
+    """The host a client gets when a backslash doesn't end the authority, if
+    that differs: only when an `@` follows a backslash."""
+    end = _LENIENT_AUTHORITY_END.search(text)
+    authority = text[: end.start()] if end else text
+    backslash = authority.find("\\")
+    if backslash == -1 or "@" not in authority[backslash:]:
+        return None
+    return authority.rpartition("@")[2]
 
 
 def _host_and_port(authority: str) -> tuple[str, int | None, bool]:

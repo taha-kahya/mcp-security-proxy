@@ -149,7 +149,7 @@ do no I/O, so any defense can call them inside its deadline.
 `is_internal` (metadata, loopback, link-local or private). *Errors:* none;
 unparseable input is `invalid`. *Rules:*
 
-- Hosts are parsed as browsers parse them (WHATWG), so decimal, hex, octal
+- Hosts are parsed with the WHATWG URL rules browsers follow, so decimal, hex, octal
   and shortened IPv4, percent-encoding, fullwidth digits, userinfo before
   `@`, and IPv4 inside IPv6 (mapped, NAT64, 6to4) get the label of the
   address they reach, with `form = ip_obfuscated`.
@@ -160,6 +160,13 @@ unparseable input is `invalid`. *Rules:*
 - Any other hostname is `name`, never `external`: without DNS its address
   is unknown, and a name can be made to resolve to an internal address (DNS
   rebinding). Egress network policy is the control for that.
+- Python clients don't all follow WHATWG. When a backslash comes before an
+  `@` (`http://evil.com\@169.254.169.254/`), WHATWG connects to `evil.com`
+  but `urlsplit` and httpx connect to `169.254.169.254`. Both hosts are
+  classified, and the more sensitive label wins with `reason =
+  ambiguous_authority`.
+- *Not covered:* redirects. An external name can redirect to an internal
+  address after the check; only egress policy stops that.
 
 ## Configuration
 
