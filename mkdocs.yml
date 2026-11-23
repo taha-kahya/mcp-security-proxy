@@ -60,6 +60,7 @@ nav:
       - Getting started: guide/getting-started.md
       - Roadmap: guide/roadmap.md
       - Adding a defense: guides/adding-a-defense.md
+      - Transparent mode: guides/transparent-mode.md
   - Architecture:
       - architecture.md
       - design/request-lifecycle-and-control.md
@@ -92,6 +93,7 @@ nav:
       - decisions/0020-inspection-stages-and-delivery-semantics.md
       - decisions/0021-v4-capability-first-delivery.md
       - decisions/0022-server-identity-view-and-registration-defense.md
+      - decisions/0023-evaluation-readiness-and-transparent-mode.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 

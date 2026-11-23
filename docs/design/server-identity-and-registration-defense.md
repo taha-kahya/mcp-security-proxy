@@ -26,13 +26,14 @@ protocol forbids; it only claims things.
 ```python
 @dataclass(frozen=True)
 class ServerRecord:
-    server_id: str            # operator config; authoritative
-    transport: str            # "stdio" | "streamable_http"
-    launch: str               # command line or URL without credentials; authoritative
-    approved: bool            # an operator entry matches server_id and launch
-    reported_name: str        # CLAIM, from InitializeResult
-    reported_version: str     # CLAIM
+    server_id: str  # operator config; authoritative
+    transport: str  # "stdio" | "streamable_http"
+    launch: str  # command line or URL without credentials; authoritative
+    approved: bool  # an operator entry matches server_id and launch
+    reported_name: str  # CLAIM, from InitializeResult
+    reported_version: str  # CLAIM
     tool_ids: tuple[str, ...]
+
 
 class ServersView(Protocol):
     def all(self) -> tuple[ServerRecord, ...]: ...
