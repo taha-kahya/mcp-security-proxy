@@ -4,12 +4,16 @@ Built once at proxy startup from each upstream server's own `list_tools`
 result (V1 does not yet re-discover per request; that belongs to a later,
 Registry-aware phase). Keeps each upstream `Tool` definition's metadata
 intact and only overrides `name` with the disambiguated external name, to
-preserve structure rather than reconstructing tools from scratch.
+preserve structure rather than reconstructing tools from scratch. In
+transparent mode (0023) the external name is the bare name, which is
+unambiguous because exactly one upstream is configured.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from mcp import types
 
@@ -23,6 +27,10 @@ class RoutedTool:
     bare_name: str
     external_name: str
     tool: types.Tool
+    # The definition exactly as the upstream sent it on the wire, key order and
+    # unknown fields included; `tool` is built from this same object. Only
+    # captured in transparent mode (see `register_server_tools`).
+    raw: Mapping[str, Any] | None = None
 
     @property
     def tool_id(self) -> ToolId:
@@ -32,17 +40,36 @@ class RoutedTool:
         """The upstream definition as advertised to the agent."""
         return self.tool.model_copy(update={"name": self.external_name})
 
+    def external_wire(self) -> Mapping[str, Any] | None:
+        """The upstream's own JSON definition, or None when not captured. In
+        transparent mode the external name is the bare name, so nothing in it
+        needs rewriting."""
+        return self.raw
+
 
 class RoutingTable:
-    def __init__(self) -> None:
+    def __init__(self, *, transparent: bool = False) -> None:
+        self._transparent = transparent
         self._by_external_name: dict[str, RoutedTool] = {}
 
-    def register_server_tools(self, server_id: str, tools: list[types.Tool]) -> None:
-        for tool in tools:
-            name = external_tool_name(server_id, tool.name)
+    def register_server_tools(
+        self,
+        server_id: str,
+        tools: list[types.Tool],
+        raw_tools: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """`raw_tools` are the definitions as the upstream sent them, one per
+        entry of `tools` and in the same order (each tool is built from its
+        raw object)."""
+        if raw_tools is not None and len(raw_tools) != len(tools):
+            raise ValueError("raw_tools must hold one definition per tool")
+        for index, tool in enumerate(tools):
+            name = tool.name if self._transparent else external_tool_name(server_id, tool.name)
             if name in self._by_external_name:
                 raise ValueError(f"duplicate external tool name: {name!r}")
-            self._by_external_name[name] = RoutedTool(server_id, tool.name, name, tool)
+            self._by_external_name[name] = RoutedTool(
+                server_id, tool.name, name, tool, raw_tools[index] if raw_tools else None
+            )
 
     def entries(self) -> list[RoutedTool]:
         return list(self._by_external_name.values())
