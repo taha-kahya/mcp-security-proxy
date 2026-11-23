@@ -1,6 +1,6 @@
 # 0023 — Evaluation readiness: transparent mode, three evaluation arms, and coverage order
 
-Status: Proposed
+Status: Accepted
 
 ## Context
 
