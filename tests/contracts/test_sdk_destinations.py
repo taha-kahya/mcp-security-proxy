@@ -254,7 +254,7 @@ def test_ip_destinations_report_the_canonical_address() -> None:
 def test_ipv4_in_ipv6_keeps_the_ipv6_host_and_reports_the_ipv4_address() -> None:
     destination = classify_destination("http://[::ffff:10.0.0.1]/")
 
-    assert destination.host == "::ffff:a00:1"
+    assert destination.host == "::ffff:10.0.0.1"  # RFC 5952, on every Python version
     assert destination.address == ip_address("10.0.0.1")
     assert destination.reason == "ipv4_in_ipv6"
 

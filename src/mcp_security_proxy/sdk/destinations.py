@@ -308,9 +308,17 @@ def _classify_ipv6(text: str) -> _Verdict:
     embedded = _embedded_ipv4(address)
     if embedded is not None:
         kind = _address_kind(embedded)
-        return _Verdict(kind, HostForm.IP_OBFUSCATED, "ipv4_in_ipv6", str(address), embedded)
+        return _Verdict(kind, HostForm.IP_OBFUSCATED, "ipv4_in_ipv6", _ipv6_text(address), embedded)
     kind = _address_kind(address)
-    return _Verdict(kind, HostForm.IP, _address_reason(kind), str(address), address)
+    return _Verdict(kind, HostForm.IP, _address_reason(kind), _ipv6_text(address), address)
+
+
+def _ipv6_text(address: IPv6Address) -> str:
+    """RFC 5952 text, the same on every Python version. Older patch releases
+    wrote `::ffff:10.0.0.1` as `::ffff:a00:1` from `str()`."""
+    if address.ipv4_mapped is not None:
+        return f"::ffff:{address.ipv4_mapped}"
+    return str(address)
 
 
 def _disguised(form: HostForm) -> HostForm:
