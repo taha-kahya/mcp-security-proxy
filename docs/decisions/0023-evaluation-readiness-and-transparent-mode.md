@@ -71,7 +71,10 @@ fixtures (mock servers with a poisoned description written from public
 sources), never the held-out payloads. The defended arm uses the first real
 defense from ADR 0021 MR 1, so the demo depends on that MR.
 
-**7. Coverage order.** ADR 0021's order stands and is not changed here.
+**7. Coverage order.** Replaced by ADR 0024; the other decisions here stand.
+The text below is kept as it was decided.
+
+ADR 0021's order stands and is not changed here.
 
 1. MR 1: Scan, with a Direct and an Indirect defense. Result scanning at
    `before_delivery` (ADR 0020) is part of this MR.
