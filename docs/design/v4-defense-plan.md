@@ -174,7 +174,7 @@ that can start as soon as S1 merges.
 | S1 | docs | Adds the attack-doc template, the prior-art analysis and an ADR for the new order, and points the `add-defense` skill at them. | — | every MR |
 | S2 ★ | core | Adds Scan's rule-based stage (decoding, hidden content, lookalike characters, secrets), which defenses call through `ctx.scan`. Ships with D2 and I1. | S1 | D3 · D4 · I2 · C3 · S4 |
 | S3 ★ | core | Adds a pure SDK helper that labels a URL or host as private, link-local, cloud metadata or external. | S1 | C2 · E2 |
-| S4 | core, ADR | Adds a local classifier behind Scan to catch reworded injections that rules miss. | S2 | — |
+| S4 | core, ADR | Adds a local classifier behind Scan to catch reworded injections that rules miss. Tool definitions first, with `direct_definition_classifier` ([0026](../decisions/0026-scan-classifier-stage.md)); tool results are not covered yet. | S2 | — |
 | S5 | core | Links each audit record to the previous one's hash, so tampering can be detected. | S1 only | — |
 | D0 | docs | Describes how direct attacks work, with public examples and their benign twins. | S1 | — |
 | D1 ★ | skill | Flags tools whose annotations, such as read-only, contradict the operator's classification. | S1 only | — |

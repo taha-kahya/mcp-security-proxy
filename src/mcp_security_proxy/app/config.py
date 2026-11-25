@@ -1,9 +1,9 @@
 """Proxy configuration schema and YAML loading.
 
 Relative paths (`policy_path`, `audit_log_path`, `tools_path`,
-`defenses_path`, `state.path`) resolve against the working directory the
-proxy is started from, the same as the mock servers' `--audit-log`
-arguments.
+`defenses_path`, `state.path`, `scan.classifier.model_dir`) resolve
+against the working directory the proxy is started from, the same as the
+mock servers' `--audit-log` arguments.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 Transport = Literal["stdio", "streamable-http"]
 
@@ -73,6 +73,29 @@ class StateConfig(BaseModel):
         return self
 
 
+class ClassifierConfig(BaseModel):
+    """Scan's classifier stage (ADR 0026). `model_dir` holds a known model
+    bundle (weights, config and tokenizer, each hash-checked at startup).
+    `operating_point` picks the frozen thresholds: `high_recall` (default)
+    grades more tools high or critical than `balanced`, so fewer poisoned
+    tools pass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    model_dir: Path
+    operating_point: Literal["high_recall", "balanced"] = "high_recall"
+    device: str = "cpu"
+    token_budget: int = Field(default=8192, ge=512)
+    cache_entries: int = Field(default=10_000, ge=1)
+
+
+class ScanConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Unset: no classifier stage, and `context.scan.poisoning` raises.
+    classifier: ClassifierConfig | None = None
+
+
 class ProxyConfig(BaseModel):
     agent_transport: Transport = "stdio"
     agent_host: str = "127.0.0.1"
@@ -85,6 +108,7 @@ class ProxyConfig(BaseModel):
     defenses_path: Path | None = None
     defense_deadline_seconds: float = Field(default=2.0, gt=0)
     state: StateConfig = Field(default_factory=StateConfig)
+    scan: ScanConfig = Field(default_factory=ScanConfig)
     # Transparent mode (0023): one upstream, bare tool names, upstream server
     # identity, and request `_meta` forwarded. Opt-in; the default is unchanged.
     transparent: bool = False

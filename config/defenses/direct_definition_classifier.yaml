@@ -1,0 +1,7 @@
+# Tool definitions graded as poisoned by Scan's classifier stage (ADR 0026).
+# Needs `scan.classifier` in the proxy config and the classifier extra
+# (`uv sync --extra classifier`); without them every listed tool fails
+# inspection and is hidden. See src/mcp_security_proxy/defenses/direct/definition_classifier.
+id: direct_definition_classifier
+enabled: false
+settings: {}

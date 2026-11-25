@@ -18,6 +18,7 @@ from typing import Any
 from mcp_security_proxy.sdk import (
     Decoding,
     Detector,
+    ScanError,
     ScanLimitError,
     ScanMatch,
     ScanResult,
@@ -79,6 +80,9 @@ class RuleScanner:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._scan(Detector.SECRETS, value)
+
+    async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
+        raise ScanError("no classifier stage is configured (scan.classifier, ADR 0026)")
 
     def _scan(self, detector: Detector, value: Any) -> ScanResult:
         leaves = list(text_leaves(value))

@@ -8,6 +8,10 @@ anything; the orchestrator does that with what this returns.
 Every method except `serialized` must be called while holding
 `serialized(principal)`, so that deciding a call and reserving it in
 History happen against the same history, even under concurrent calls.
+
+Before definitions are inspected, `prescan` (Scan's classifier stage, ADR
+0026) scores them outside the defense deadline, so a defense only reads the
+cached result.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from mcp import types
 
@@ -40,6 +44,14 @@ from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.policy import PolicySnapshot, PrincipalPolicy
 from mcp_security_proxy.services.registry import Registry
 from mcp_security_proxy.services.state import DefenseStateStore, StateUnavailableError, TaskRef
+
+
+class DefinitionPrescan(Protocol):
+    """Work done once per tool definition before it is inspected. Must not
+    raise for a failed scan: a definition left unscored is reported by the
+    defense that reads it as failed."""
+
+    async def prepare(self, definitions: Iterable[Mapping[str, Any]]) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -93,6 +105,7 @@ class ProxyControl:
         runner: Runner,
         guard: Guard,
         locks: TaskLocks | None = None,
+        prescan: DefinitionPrescan | None = None,
     ) -> None:
         self._policy = policy
         self._tasks = tasks
@@ -102,6 +115,7 @@ class ProxyControl:
         self._runner = runner
         self._guard = guard
         self._locks = locks or TaskLocks()
+        self._prescan = prescan
         # Keyed by (task, tool, tool definition version, policy version). A
         # repeat `discover`/`authorize_call` for the same combination (one
         # `tools/list` inspects every visible tool; a call re-checks its
@@ -121,9 +135,10 @@ class ProxyControl:
         policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
         visible: list[RoutedTool] = []
         hidden: list[RoutedTool] = []
-        for routed in tools:
-            if not policy.can_discover(routed.tool_id):
-                continue
+        discoverable = [routed for routed in tools if policy.can_discover(routed.tool_id)]
+        # One batch for the whole listing, so the model runs once per list.
+        await self._prepare(discoverable)
+        for routed in discoverable:
             reports = await self._inspect_definition(principal, task, policy, routed)
             review = self._guard.review(policy, reports)
             (visible if review.outcome is Outcome.ALLOW else hidden).append(routed)
@@ -212,12 +227,20 @@ class ProxyControl:
         cached = self._definition_cache.get(key)
         if cached is not None:
             return cached
+        # A no-op when `discover` already scored it; needed for a call that
+        # arrives without a listing, for example after a restart.
+        await self._prepare([routed])
         reports = await self._inspect(
             discovery_event(definition), principal, task, policy, definition
         )
         if self._cacheable(reports):
             self._definition_cache[key] = reports
         return reports
+
+    async def _prepare(self, tools: Iterable[RoutedTool]) -> None:
+        if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
+            return
+        await self._prescan.prepare([self._definition(routed).definition for routed in tools])
 
     def _cacheable(self, reports: Iterable[InspectionReport]) -> bool:
         """A failed inspection may be transient (a timeout, a raised error),
