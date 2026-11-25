@@ -17,16 +17,31 @@ versions in `uv.lock`.
 
 ## 2. Install the bundle
 
-The model files are not in this repository. They are published as a
-release of a separate model repository, which is private for now; ask the
-maintainers for access. With access, download them into
-`models/definition-classifier/` (git-ignored) and check them:
+The model files are not in this repository. They are published as the
+release `definition-classifier/definition-v1` of a separate model
+repository, `WhiteRow33/mcp-security-proxy-models`, which is private for
+now.
 
-```sh
-gh release download definition-classifier/definition-v1 \
-  -R WhiteRow33/mcp-security-proxy-models -D models/definition-classifier
-(cd models/definition-classifier && shasum -a 256 -c SHA256SUMS)
-```
+1. **Get access.** Ask the model repository's owner for read access to
+   `WhiteRow33/mcp-security-proxy-models`, and accept the GitHub
+   invitation (it arrives by email and in GitHub notifications).
+2. **Log in to the GitHub CLI** with the account that was invited. Install
+   [`gh`](https://cli.github.com/) if needed, then run `gh auth login`.
+   `gh auth status` shows which account is active.
+3. **Download and check the files.** From the repository root, download
+   into `models/definition-classifier/` (git-ignored; the directory is
+   created if missing), then check them against the release's checksums:
+
+   ```sh
+   gh release download definition-classifier/definition-v1 \
+     -R WhiteRow33/mcp-security-proxy-models -D models/definition-classifier
+   cd models/definition-classifier
+   shasum -a 256 -c SHA256SUMS    # on Linux: sha256sum -c SHA256SUMS
+   cd -
+   ```
+
+   Every file should print `OK`. `release not found` or HTTP 404 means
+   the active `gh` account has no access yet; see steps 1 and 2.
 
 The proxy also checks each file's SHA-256 against
 `services/scan/classifier/checkpoints.py`, and refuses to start if a file
@@ -43,10 +58,13 @@ is missing, altered or unknown:
 Check that the installed libraries reproduce the reference scores:
 
 ```sh
-uv run --extra classifier pytest tests/contracts/test_scan_classifier_model.py
+uv run --extra classifier pytest -rs tests/contracts/test_scan_classifier_model.py
 ```
 
-These tests are skipped when the bundle is absent.
+Expect every test to pass. These tests are skipped, not failed, when the
+bundle is not at `models/definition-classifier/` or the extra is not
+installed, so `skipped` means the bundle was not found: check where the
+files landed. To test a bundle elsewhere, set `MCP_PROXY_CLASSIFIER_DIR`.
 
 ## 3. Configure the proxy
 
