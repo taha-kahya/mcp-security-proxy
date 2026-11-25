@@ -145,11 +145,13 @@ distributed separately, and installed at `models/definition-classifier/`
 ## Consequences
 
 - **Choice of default.** `high_recall` was chosen as the default after
-  evaluation results for both operating points were available. The choice
-  is therefore not independently validated, and held-out proxy runs should
-  report `balanced` alongside it. At `high_recall`, most tools
-  past the gate are graded critical, so the high/critical split carries
-  little information.
+  the classifier's own evaluation results for both operating points were
+  available, and in line with the operator's priority of blocking high and
+  critical poisoning. No held-out proxy results were seen. `high_recall`
+  is frozen before any classifier-enabled held-out proxy evaluation, and
+  that evaluation keeps it. `balanced` is an optional sensitivity check,
+  not a second campaign. At `high_recall`, most tools past the gate are
+  graded critical, so the high/critical split carries little information.
 - **Scores are not calibrated probabilities.** Every match therefore has
   the same confidence.
 - **Not a sole control.** The classifier misses some reworded and
