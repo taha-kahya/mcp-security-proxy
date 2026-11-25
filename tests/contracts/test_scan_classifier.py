@@ -13,6 +13,7 @@ import hashlib
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ from mcp_security_proxy.defenses.direct.definition_classifier import (
     create as create_classifier_defense,
 )
 from mcp_security_proxy.sdk import (
+    Capability,
     Detector,
     MatchKind,
     Principal,
@@ -209,17 +211,20 @@ class FakeScorer:
         fail: bool = False,
         crash: frozenset[str] = frozenset(),
         hold: threading.Event | None = None,
+        delay: float = 0.0,
     ):
         self.scores = scores
         self.fail = fail
         self.crash = crash
         self.hold = hold
+        self.delay = delay
         self.batches: list[list[str]] = []
 
     def score(self, texts: Sequence[str]) -> list[tuple[float, float, float] | None]:
         self.batches.append(list(texts))
         if self.hold is not None:
             self.hold.wait()
+        time.sleep(self.delay)
         names = [text.splitlines()[0].removeprefix("tool: ") for text in texts]
         if self.fail or self.crash & set(names):
             raise RuntimeError("model failed")
@@ -323,13 +328,47 @@ async def test_one_failing_definition_does_not_unscore_the_listing() -> None:
     assert scorer.batches[1:] == [["tool: a"], ["tool: b"], ["tool: c"]]
 
 
-async def test_a_listing_larger_than_the_cache_keeps_its_scores() -> None:
+async def test_a_listing_larger_than_the_cache_keeps_its_grades_while_prepared() -> None:
     classifier = _classifier(FakeScorer({"a": CLEAN, "b": HIGH, "c": CRITICAL}), cache_entries=2)
     listing = [{"name": "a"}, {"name": "b"}, {"name": "c"}]
 
-    await classifier.prepare(listing)
+    async with classifier.prepared(listing):
+        labels = [m.label for d in listing for m in classifier.result(d).matches]
 
-    assert [m.label for d in listing for m in classifier.result(d).matches] == ["high", "critical"]
+    assert labels == ["high", "critical"]
+    assert len(classifier._cache) == 2  # the cache did not grow
+    assert classifier._held == {}
+
+
+async def test_another_listing_cannot_evict_grades_being_read() -> None:
+    """Two principals listing at once share one bounded cache."""
+    scorer = FakeScorer({"a": HIGH, "b": CLEAN, "c": CLEAN})
+    classifier = _classifier(scorer, cache_entries=1)
+
+    async with classifier.prepared([{"name": "a"}]):
+        async with classifier.prepared([{"name": "b"}, {"name": "c"}]):
+            pass  # evicts "a" from the cache
+        [match] = classifier.result({"name": "a"}).matches
+
+    assert match.label == "high"
+    with pytest.raises(ScanError):  # released, and no longer cached
+        classifier.result({"name": "a"})
+
+
+async def test_retries_after_a_failed_batch_share_one_timeout() -> None:
+    """A model that fails slowly holds the stage for about two timeouts,
+    not one per definition."""
+    names = [f"t{i}" for i in range(20)]
+    scorer = FakeScorer(dict.fromkeys(names, CLEAN), fail=True, delay=0.05)
+    classifier = _classifier(scorer, timeout=0.2)
+
+    await classifier.prepare([{"name": n} for n in names])
+
+    assert 2 <= len(scorer.batches) < 1 + len(names)
+    for _ in range(200):  # until the abandoned retry returns
+        if not classifier._busy.is_set():
+            break
+        await anyio.sleep(0.01)
 
 
 async def test_a_hung_scorer_times_out_and_fails_closed_until_it_returns() -> None:
@@ -377,25 +416,31 @@ CLASSIFIER_CATALOG = StaticCatalog({"direct_definition_classifier": create_class
 def test_the_defense_without_a_classifier_stops_startup(tmp_path: Path) -> None:
     """Otherwise every tool would be hidden, which an evaluation arm could
     misread as the defense blocking everything."""
-    with pytest.raises(DefenseLoadError, match="scan.classifier is not configured"):
+    with pytest.raises(DefenseLoadError, match="scan_classifier"):
         load_security(_startup_config(tmp_path, defense=True, classifier=False), CLASSIFIER_CATALOG)
 
 
-def test_a_classifier_without_the_defense_is_only_a_warning(
+def test_a_classifier_no_defense_needs_is_not_loaded(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    # An empty model_dir: loading it would raise ClassifierLoadError.
     config = _startup_config(tmp_path, defense=False, classifier=True)
-    # Reaching the model load (an empty model_dir) proves the pairing passed.
-    with pytest.raises(ClassifierLoadError):
-        load_security(config, CLASSIFIER_CATALOG)
-    assert "direct_definition_classifier is disabled" in caplog.text
+    setup = load_security(config, CLASSIFIER_CATALOG)
+    assert "the model is not loaded" in caplog.text
+    with pytest.raises(ScanError, match="no classifier stage"):
+        anyio.run(setup.scan.poisoning, {"name": "a"})
+
+
+def test_the_classifier_capability_is_needed_only_by_the_classifier_defense() -> None:
+    manifest = create_classifier_defense({}).manifest()
+    assert Capability.SCAN_CLASSIFIER in manifest.required_capabilities
 
 
 async def test_scan_without_a_classifier_refuses_poisoning() -> None:
     scan = Scan(RuleScanner())
-    await scan.prepare([{"name": "a"}])  # a no-op
-    with pytest.raises(ScanError):
-        await scan.poisoning({"name": "a"})
+    async with scan.prepared([{"name": "a"}]):  # a no-op
+        with pytest.raises(ScanError):
+            await scan.poisoning({"name": "a"})
 
 
 # --- the bundle -------------------------------------------------------------
@@ -440,6 +485,60 @@ def test_only_the_pinned_files_are_copied_for_loading(
     (tmp_path / "again").mkdir()
     with pytest.raises(ClassifierLoadError, match="does not match"):
         verify_bundle(bundle, copy_to=tmp_path / "again")
+
+
+def _fake_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / WEIGHTS_FILE).write_bytes(b"weights")
+    fake = type(DEFINITION_V1)(
+        name="fake",
+        serialization="ser-1",
+        max_tokens=8,
+        num_labels=3,
+        files={WEIGHTS_FILE: hashlib.sha256(b"weights").hexdigest()},
+        operating_points={},
+    )
+    monkeypatch.setattr(torch_scorer, "CHECKPOINTS", {fake.files[WEIGHTS_FILE]: fake})
+    monkeypatch.setattr(torch_scorer, "_require_extra", lambda: None)
+    return bundle
+
+
+def test_a_wrong_bundle_is_refused_before_anything_is_copied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = _fake_bundle(tmp_path, monkeypatch)
+    (bundle / WEIGHTS_FILE).write_bytes(b"other weights")
+
+    def no_copy(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("copied before the bundle was checked")
+
+    monkeypatch.setattr(torch_scorer.tempfile, "TemporaryDirectory", no_copy)
+    with pytest.raises(ClassifierLoadError, match="not a known checkpoint"):
+        torch_scorer.load_scorer(bundle, device="cpu", token_budget=8)
+
+
+def test_too_little_temporary_space_is_a_load_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = _fake_bundle(tmp_path, monkeypatch)
+    monkeypatch.setattr(torch_scorer.shutil, "disk_usage", lambda _: type("U", (), {"free": 0}))
+    with pytest.raises(ClassifierLoadError, match="TMPDIR"):
+        torch_scorer.load_scorer(bundle, device="cpu", token_budget=8)
+
+
+def test_a_failed_copy_is_a_load_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bundle = _fake_bundle(tmp_path, monkeypatch)
+    real = torch_scorer.sha256_file
+
+    def full_disk(path: Path, copy_to: Path | None = None) -> str:
+        if copy_to is not None:
+            raise OSError(28, "No space left on device")
+        return real(path)
+
+    monkeypatch.setattr(torch_scorer, "sha256_file", full_disk)
+    with pytest.raises(ClassifierLoadError, match="could not copy"):
+        torch_scorer.load_scorer(bundle, device="cpu", token_budget=8)
 
 
 def test_every_known_checkpoint_pins_its_tokenizer_and_config() -> None:
@@ -534,3 +633,42 @@ async def test_a_critical_tool_called_without_a_listing_is_refused() -> None:
     assert upstream.calls == []
     [decision] = sink.of_kind(DecisionRecord)
     assert decision.rule_refs == (f"defense:direct_definition_classifier:{CRITICAL_RULE}",)
+
+
+async def test_a_listing_scores_a_failing_tool_once_more_not_twice() -> None:
+    """After a failed batch each tool is retried alone, and inspection does
+    not score it yet again."""
+    scorer = FakeScorer({"read": CLEAN, "write": HIGH, "exec": CRITICAL}, fail=True)
+    proxy = _proxy(scorer, MemorySink())
+
+    assert await proxy.orchestrator.list_tools(ALICE) == []
+    assert len(scorer.batches) == 1 + 3
+
+
+class RecordingScan(Scan):
+    def __init__(self, classifier: DefinitionClassifier) -> None:
+        super().__init__(RuleScanner(), classifier)
+        self.prepared_names: list[list[str]] = []
+
+    def prepared(self, definitions: Any) -> Any:
+        definitions = list(definitions)
+        self.prepared_names.append([d["name"] for d in definitions])
+        return super().prepared(definitions)
+
+
+async def test_tools_already_inspected_are_not_prescanned_again() -> None:
+    scorer = FakeScorer({"read": CLEAN, "write": HIGH, "exec": CRITICAL})
+    scan = RecordingScan(_classifier(scorer))
+    proxy = build_proxy(
+        routing=routing_for({"server_a": ["read", "write", "exec"]}),
+        upstreams={"server_a": FakeUpstream()},
+        policy=POLICY,
+        audit=MemorySink(),
+        defenses=[create_classifier_defense({})],
+        scan=scan,
+    )
+
+    await proxy.orchestrator.list_tools(ALICE)
+    await proxy.orchestrator.list_tools(ALICE)
+
+    assert scan.prepared_names == [["read", "write", "exec"], []]

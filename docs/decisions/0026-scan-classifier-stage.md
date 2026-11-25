@@ -39,11 +39,14 @@ Constraints:
   checkpoint was trained with. The weights, config and tokenizer files are
   pinned by SHA-256 in `services/scan/classifier/checkpoints.py`. A bundle
   that does not match is refused at startup.
-- The libraries never read the bundle directory. At startup the pinned
-  files, and nothing else, are copied into a private temporary directory,
-  hashed as they are copied, and loaded from there. Extra files in the
-  bundle directory are ignored, and a file changed after the check is not
-  loaded.
+- The libraries never read the bundle directory. At startup the bundle is
+  first checked in place, so an unknown or altered bundle is refused before
+  anything is copied. Then the pinned files, and nothing else, are copied
+  into a private temporary directory, hashed again as they are copied, and
+  loaded from there. Extra files in the bundle directory are ignored, and a
+  file changed after the check is not loaded. Too little temporary space,
+  or a tokenizer without a pad token, is a load error at startup, not a
+  scoring failure later.
 
 **Grading rule (gated).** Each definition gets one grade:
 
@@ -80,18 +83,27 @@ choice.
   the grade in `label`. Its pointer is `""` (the whole definition), because
   the model does not localise. SDK 1.1.0 → 1.2.0. Without a configured
   classifier, `poisoning` raises `ScanError`.
-- *Prescan.* `ProxyControl` calls `Scan.prepare` before the Runner. A
-  listing is scored in one batch. A call that arrives without a listing,
-  for example after a restart, is scored on its own. Scoring runs in a
-  worker thread, outside every defense deadline, and only when a discovery
-  defense is enabled.
+- *Capability.* A defense that reads the classifier declares
+  `scan_classifier` next to `scan`. The core provides it only when
+  `scan.classifier` is configured, so such a defense without a classifier
+  fails the plan at startup (`DefenseLoadError`), like any other missing
+  capability. The model is loaded, and listings are scored, only when an
+  enabled defense declares it.
+- *Prescan.* `ProxyControl` enters `Scan.prepared` before the Runner and
+  leaves it when inspection ends. A listing's tools that have no cached
+  inspection reports are scored in one batch; tools already inspected are
+  not scored or hashed again. A call that arrives without a listing, for
+  example after a restart, is scored on its own. Scoring runs in a worker
+  thread, outside every defense deadline.
 - *Cache.* An in-memory LRU keyed by the definition's canonical digest. The
   scorer, checkpoint and operating point are fixed for the process, and the
   result's `version` names them, for example
   `classifier-definition-v1+ser-1+high_recall`. Entries hold a grade and
-  three numbers, never content. The cache grows to hold the largest
-  listing it is given, so a listing never evicts its own scores before
-  they are read.
+  three numbers, never content. The cache is bounded
+  (`scan.classifier.cache_entries`). While a listing is inspected, its
+  grades are also held outside the cache, so neither a listing larger than
+  the cache nor another principal's concurrent listing can evict them
+  before they are read.
 - *Failure.* A read of a definition without a grade raises `ScanError`, so
   the Runner reports the inspection as `failed` and policy `on_failure`
   blocks. Failed reports are not cached (ADR 0020), so the next listing
@@ -105,9 +117,12 @@ choice.
     left without a grade instead of waiting behind it.
 
   When a batch fails, each definition in it is retried alone, so only the
-  definitions that cause the failure are hidden.
-- *Defense.* `direct_definition_classifier` declares only `scan`, so ADR
-  0020's discovery caching applies. It maps grades to the rules `.critical`,
+  definitions that cause the failure are hidden. The retries share one
+  timeout, so one listing holds the stage for at most two timeouts, and
+  inspection does not score a definition again after its retry failed.
+- *Defense.* `direct_definition_classifier` declares `scan` and
+  `scan_classifier`, neither stateful, so ADR 0020's discovery caching
+  applies. It maps grades to the rules `.critical`,
   `.high` and `.medium`. Its reference config has `enabled: false`, because
   it needs the bundle.
 
@@ -171,19 +186,19 @@ Deferred or known limitations:
   tokens is always hidden.
 - **Abandoned calls.** A timed-out call keeps running in its worker thread
   until the model returns; it cannot be interrupted.
-- **Cache growth.** The cache grows with the largest listing, so a server
-  that lists very many tools raises memory use (a few hundred bytes per
-  entry). Concurrent listings from different principals can still evict
-  each other's scores when together they exceed the cache; those tools fail
-  closed and are rescored on the next listing.
-- **Scoring without the defense.** A configured classifier scores
-  definitions whenever any discovery defense is enabled, even if
-  `direct_definition_classifier` is disabled. That wastes work but is not
-  unsafe; startup logs a warning.
+- **Held grades.** Memory for grades is the cache plus the listings being
+  inspected at that moment (a few hundred bytes per definition).
+- **One stage lock.** Scoring is serialized. While a slow listing is
+  scored, other principals' listings that need scoring wait, up to two
+  timeouts; listings already cached do not wait.
+- **Classifier without a defense.** If `scan.classifier` is configured but
+  no enabled defense declares `scan_classifier`, the model is not loaded
+  and startup logs a warning.
 - **Defense without a classifier.** If `direct_definition_classifier` is
   enabled but `scan.classifier` is not configured, startup stops with
-  `DefenseLoadError`. Running would hide every tool, which an evaluation
-  arm could misread as the defense blocking every attack.
+  `DefenseLoadError` (`scan_classifier` unavailable). Running would hide
+  every tool, which an evaluation arm could misread as the defense blocking
+  every attack.
 - **Replacing the checkpoint.** A new checkpoint must come with new pinned
   hashes and newly fitted operating points. If its serialization changes,
   it also needs a new `SERIALIZATION_VERSION`.

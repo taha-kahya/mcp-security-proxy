@@ -163,3 +163,22 @@ def test_an_altered_tokenizer_is_refused(tmp_path: Path) -> None:
     (tmp_path / "tokenizer_config.json").write_text("{}")
     with pytest.raises(ClassifierLoadError, match="does not match"):
         load_classifier(tmp_path, OperatingPoint.HIGH_RECALL)
+
+
+def test_a_tokenizer_without_a_pad_token_is_refused_at_load(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Batches are padded, so without a pad token every scoring call would
+    fail and every tool would be hidden."""
+    import transformers
+
+    from mcp_security_proxy.services.scan.classifier.torch_scorer import load_scorer
+
+    class NoPad:
+        pad_token_id = None
+
+    monkeypatch.setattr(
+        transformers.AutoTokenizer, "from_pretrained", classmethod(lambda cls, *a, **k: NoPad())
+    )
+    with pytest.raises(ClassifierLoadError, match="no pad token"):
+        load_scorer(BUNDLE, device="cpu", token_budget=8192)

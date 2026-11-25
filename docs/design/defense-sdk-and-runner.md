@@ -80,7 +80,9 @@ and tuples (`sdk.freeze`).
   digest), `signals` (earlier signals in this inspection, limited to
   required types), plus `registry`, `history`, `policy`,
   `private_state`, and `scan`, each raising `CapabilityNotGrantedError`
-  unless declared.
+  unless declared. `scan_classifier` grants nothing itself: a defense that
+  reads Scan's classifier stage declares it next to `scan`, and the core
+  provides it only when `scan.classifier` is configured (ADR 0026).
 - **Manifest** — `id` (snake_case, equal to the entry-point name),
   `version`, `sdk_version_range` (PEP 440), `stages`,
   `required_capabilities`, `required_signals`, `produced_signals`.

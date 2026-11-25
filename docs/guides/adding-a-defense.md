@@ -93,6 +93,8 @@ def create(settings: Mapping[str, Any]) -> MyCheck:
 **Use only what you declare.** The context gives you only the capabilities
 in `required_capabilities` (`registry`, `history`, `policy`,
 `private_state`, `scan`). Using an undeclared one fails the inspection.
+A defense that reads `scan.poisoning` also declares `scan_classifier`, so
+it fails at startup when no classifier is configured.
 
 **Scan** finds evidence in text; your defense decides what it means.
 `await context.scan.instructions(value)` (also `hidden`, `lookalikes`,

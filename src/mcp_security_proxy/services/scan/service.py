@@ -4,6 +4,7 @@ stage when the operator configured one (ADR 0025, ADR 0026)."""
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any
 
 from mcp_security_proxy.sdk import ScanResult
@@ -15,10 +16,6 @@ class Scan:
     def __init__(self, rules: RuleScanner, classifier: DefinitionClassifier | None = None) -> None:
         self._rules = rules
         self._classifier = classifier
-
-    @property
-    def classifier(self) -> DefinitionClassifier | None:
-        return self._classifier
 
     async def hidden(self, value: Any) -> ScanResult:
         return await self._rules.hidden(value)
@@ -37,7 +34,11 @@ class Scan:
             return await self._rules.poisoning(definition)
         return self._classifier.result(definition)
 
-    async def prepare(self, definitions: Iterable[Mapping[str, Any]]) -> None:
-        """Run the classifier stage ahead of inspection; a no-op without one."""
-        if self._classifier is not None:
-            await self._classifier.prepare(definitions)
+    def prepared(
+        self, definitions: Iterable[Mapping[str, Any]]
+    ) -> AbstractAsyncContextManager[None]:
+        """Run the classifier stage ahead of inspection, and keep its grades
+        readable for the block; a no-op without one."""
+        if self._classifier is None:
+            return nullcontext()
+        return self._classifier.prepared(definitions)

@@ -54,7 +54,7 @@ MANIFEST = Manifest(
     version="0.1.0",
     sdk_version_range=">=1.2,<2",
     stages=frozenset({Stage.DISCOVERY}),
-    required_capabilities=frozenset({Capability.SCAN}),
+    required_capabilities=frozenset({Capability.SCAN, Capability.SCAN_CLASSIFIER}),
 )
 
 # classifier level -> (rule id, severity, reason); reasons never quote the

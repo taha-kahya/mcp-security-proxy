@@ -19,6 +19,10 @@ class Capability(StrEnum):
     POLICY = "policy"
     PRIVATE_STATE = "private_state"
     SCAN = "scan"
+    # Scan's classifier stage behind `ScanView.poisoning`, declared alongside
+    # `scan`. Available only when the operator configured `scan.classifier`,
+    # so a defense that needs it fails at startup without one (ADR 0026).
+    SCAN_CLASSIFIER = "scan_classifier"
 
 
 @dataclass(frozen=True)

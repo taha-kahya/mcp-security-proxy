@@ -11,10 +11,11 @@ number of outputs, and the fine-tuned weights are loaded strictly, so a
 missing or extra tensor is an error rather than a randomly initialised head.
 
 The libraries read only the pinned files, and only the bytes that were
-hashed: `load_scorer` copies each pinned file into a private temporary
-directory, hashing the same bytes it writes, and loads from there. Other
-files in the bundle directory are never read, and a file changed after
-the check is not loaded.
+hashed: `load_scorer` first checks the bundle in place, so an unknown or
+altered bundle is refused before anything is copied, then copies each
+pinned file into a private temporary directory, hashing the same bytes it
+writes, and loads from there. Other files in the bundle directory are never
+read, and a file changed after the check is not loaded.
 
 A text longer than the checkpoint's window is not truncated: its score is
 None, and the stage reports the definition as failed.
@@ -23,6 +24,7 @@ None, and the stage reports the definition as failed.
 from __future__ import annotations
 
 import hashlib
+import shutil
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -32,9 +34,8 @@ from mcp_security_proxy.services.scan.classifier.checkpoints import (
     CHECKPOINTS,
     WEIGHTS_FILE,
     Checkpoint,
+    CutScores,
 )
-
-CutScores = tuple[float, float, float]
 
 
 class ClassifierLoadError(RuntimeError):
@@ -86,12 +87,31 @@ def load_scorer(
 ) -> tuple[Checkpoint, TorchCornScorer]:
     """Verify the bundle and load it from a private copy of its pinned files."""
     _require_extra()
+    # In place first, so a wrong bundle is refused before anything is copied.
+    _check_temp_space(model_dir, verify_bundle(model_dir))
     with tempfile.TemporaryDirectory(prefix="mcp-proxy-classifier-") as private:
-        checkpoint = verify_bundle(model_dir, copy_to=Path(private))
+        try:
+            checkpoint = verify_bundle(model_dir, copy_to=Path(private))
+        except OSError as exc:
+            raise ClassifierLoadError(
+                f"could not copy the classifier bundle to {tempfile.gettempdir()} "
+                f"({type(exc).__name__}); set TMPDIR to a disk-backed directory with space"
+            ) from exc
         scorer = TorchCornScorer(
             Path(private), checkpoint, device=device, token_budget=token_budget
         )
     return checkpoint, scorer
+
+
+def _check_temp_space(model_dir: Path, checkpoint: Checkpoint) -> None:
+    """The private copy needs room for every pinned file."""
+    needed = sum((model_dir / name).stat().st_size for name in checkpoint.files)
+    free = shutil.disk_usage(tempfile.gettempdir()).free
+    if free < needed:
+        raise ClassifierLoadError(
+            f"the classifier bundle needs {needed >> 20} MB in {tempfile.gettempdir()}, "
+            f"which has {free >> 20} MB free; set TMPDIR to a disk-backed directory with space"
+        )
 
 
 def _require_extra() -> None:
@@ -137,6 +157,9 @@ class TorchCornScorer:
         self._model: Any = model.to(device)
         self._tokenizer: Any = AutoTokenizer.from_pretrained(str(model_dir), local_files_only=True)
         self._pad = self._tokenizer.pad_token_id
+        if self._pad is None:
+            # Batches are padded; without a pad token every scoring call fails.
+            raise ClassifierLoadError(f"{checkpoint.name}: the tokenizer has no pad token")
 
     def score(self, texts: Sequence[str]) -> list[CutScores | None]:
         """Cut scores `P(level > k)` for k = 0, 1, 2, in input order; None

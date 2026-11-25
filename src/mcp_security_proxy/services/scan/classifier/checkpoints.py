@@ -25,6 +25,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
+# Cut scores `P(level > k)` for k = 0, 1, 2.
+CutScores = tuple[float, float, float]
+
 
 class OperatingPoint(StrEnum):
     HIGH_RECALL = "high_recall"
@@ -83,7 +86,7 @@ DEFINITION_V1 = Checkpoint(
 CHECKPOINTS: Mapping[str, Checkpoint] = {DEFINITION_V1.weights_sha256: DEFINITION_V1}
 
 
-def grade(scores: tuple[float, float, float], thresholds: Thresholds) -> str | None:
+def grade(scores: CutScores, thresholds: Thresholds) -> str | None:
     """The level for cut scores `(s0, s1, s2)`, or None when clean."""
     s0, s1, s2 = scores
     if s0 <= thresholds.gate:

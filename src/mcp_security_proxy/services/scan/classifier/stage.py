@@ -1,27 +1,30 @@
 """Scan's classifier stage: grade tool definitions once, outside the deadline.
 
-`prepare` scores every definition the proxy is about to inspect that it has
+`prepared` scores every definition the proxy is about to inspect that it has
 not scored yet, in a worker thread, before the Runner starts (ADR 0026). It
-is called by the proxy, not by defenses, so the model's time never counts
-against a defense's 2 s deadline. `result` only reads the cache; a
-definition that was never scored, or whose scoring failed, raises
-`ScanError`, so the inspection is reported as failed and policy
-`on_failure` decides (block by default). A cache miss is never clean, and
-neither is a definition longer than the model's input window: it is
-reported as failed rather than graded on its beginning alone.
+is entered by the proxy, not by defenses, so the model's time never counts
+against a defense's 2 s deadline. `result` only reads grades; a definition
+that was never scored, or whose scoring failed, raises `ScanError`, so the
+inspection is reported as failed and policy `on_failure` decides (block by
+default). A missing grade is never clean, and neither is a definition
+longer than the model's input window: it is reported as failed rather than
+graded on its beginning alone.
 
 Failures are contained. Scores that are not numbers in [0, 1] count as a
 scorer failure. When a batch fails, each definition is retried alone, so
-one bad definition does not hide the whole listing. A scoring call that
-exceeds `timeout` is abandoned; while it is still running, new definitions
-stay unscored (fail closed) instead of queueing behind it.
+one bad definition does not hide the whole listing; the retries share one
+`timeout`, so a model that fails slowly holds the stage for at most two
+timeouts. A scoring call that exceeds `timeout` is abandoned; while it is
+still running, new definitions stay unscored (fail closed) instead of
+queueing behind it.
 
-The cache is keyed by the definition's canonical digest. The scorer,
-checkpoint and operating point are fixed for the life of the stage, so the
-key needs nothing else; they are all named in `version`, which every result
-carries. Cached entries hold a level and three numbers, never content.
-The cache grows to hold the largest listing it is given, so a listing never
-evicts its own scores before the Runner reads them.
+Grades live in a bounded LRU cache keyed by the definition's canonical
+digest. The scorer, checkpoint and operating point are fixed for the life
+of the stage, so the key needs nothing else; they are all named in
+`version`, which every result carries. Entries hold a level and three
+numbers, never content. Inside a `prepared` block the listing's grades are
+also held outside the cache, so neither a listing larger than the cache nor
+another principal's listing can evict them before the Runner reads them.
 """
 
 from __future__ import annotations
@@ -29,7 +32,8 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -49,6 +53,7 @@ from mcp_security_proxy.sdk import (
 from mcp_security_proxy.services.scan.cache import LruCache
 from mcp_security_proxy.services.scan.classifier.checkpoints import (
     Checkpoint,
+    CutScores,
     OperatingPoint,
     grade,
 )
@@ -61,8 +66,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_ENTRIES = 10_000
 DEFAULT_TIMEOUT_SECONDS = 600.0
-
-CutScores = tuple[float, float, float]
 
 
 class Scorer(Protocol):
@@ -101,36 +104,67 @@ class DefinitionClassifier:
         # Set while the scorer runs, so an abandoned (timed-out) call that
         # is still running is visible to the next `prepare`.
         self._busy = threading.Event()
+        # Grades of the listings being inspected: digest -> [holders, grade].
+        self._held: dict[str, list[Any]] = {}
         self.version = f"classifier-{checkpoint.name}+{SERIALIZATION_VERSION}+{operating_point}"
 
+    @asynccontextmanager
+    async def prepared(self, definitions: Iterable[Mapping[str, Any]]) -> AsyncIterator[None]:
+        """Score the definitions not scored yet, and keep their grades
+        readable by `result` until the block exits, whatever the cache
+        evicts meanwhile. Never raises for a scoring failure: it is logged
+        and the definitions stay unscored, so `result` reports them as
+        unknown."""
+        graded = await self._prepare(self._distinct(definitions))
+        for digest, entry in graded.items():
+            self._held.setdefault(digest, [0, entry])[0] += 1
+        try:
+            yield
+        finally:
+            for digest in graded:
+                held = self._held[digest]
+                held[0] -= 1
+                if held[0] == 0:
+                    del self._held[digest]
+
     async def prepare(self, definitions: Iterable[Mapping[str, Any]]) -> None:
-        """Score the definitions not in the cache. Never raises for a scoring
-        failure: it is logged and the definitions stay unscored, so `result`
-        reports them as unknown."""
-        listing = self._distinct(definitions)
-        if self._cache.reserve(len(listing)):
-            logger.warning("classifier cache grown to %d entries for one listing", len(listing))
-        pending = self._unscored(listing)
-        if not pending:
-            return
+        """Score the definitions not scored yet into the cache only."""
+        await self._prepare(self._distinct(definitions))
+
+    async def _prepare(self, listing: Mapping[str, Mapping[str, Any]]) -> dict[str, _Graded]:
+        """The grades of the listing's definitions that have one."""
+        graded = self._graded(listing)
+        if len(graded) == len(listing):
+            return graded
         async with self._lock:
             # Another inspection may have scored some while this one waited.
-            pending = self._unscored(pending)
-            if not pending:
-                return
-            texts = {digest: serialize_tool(d) for digest, d in pending.items()}
+            graded |= self._graded(listing)
+            texts = {
+                digest: serialize_tool(definition)
+                for digest, definition in listing.items()
+                if digest not in graded
+            }
+            if not texts:
+                return graded
             scores = await self._score(list(texts.values()))
             if scores is not None:
                 for digest, cut_scores in zip(texts, scores, strict=True):
-                    self._store(digest, cut_scores)
-                return
+                    graded[digest] = self._store(digest, cut_scores)
+                return graded
             if len(texts) == 1:
-                return
-            # Contain the failure to the definitions that cause it.
-            for digest, text in texts.items():
-                one = await self._score([text])
-                if one is not None:
-                    self._store(digest, one[0])
+                return graded
+            # Contain the failure to the definitions that cause it. The
+            # retries share one timeout, so a model that fails slowly cannot
+            # hold the lock for one timeout per definition.
+            with anyio.move_on_after(self._timeout) as retries:
+                for digest, text in texts.items():
+                    one = await self._score([text])
+                    if one is not None:
+                        graded[digest] = self._store(digest, one[0])
+            if retries.cancelled_caught:
+                unscored = sum(digest not in graded for digest in texts)
+                logger.error("classifier retries timed out; %d definitions unscored", unscored)
+            return graded
 
     async def _score(self, texts: list[str]) -> list[CutScores | None] | None:
         """The scorer's output, checked; None (logged) when it failed."""
@@ -157,12 +191,16 @@ class DefinitionClassifier:
         finally:
             self._busy.clear()
 
-    def _store(self, digest: str, scores: CutScores | None) -> None:
+    def _store(self, digest: str, scores: CutScores | None) -> _Graded:
         level = None if scores is None else grade(scores, self._thresholds)
-        self._cache.put(digest, _Graded(level, scores))
+        graded = _Graded(level, scores)
+        self._cache.put(digest, graded)
+        return graded
 
     def result(self, definition: Mapping[str, Any]) -> ScanResult:
-        graded = self._cache.get(canonical_digest(definition))
+        digest = canonical_digest(definition)
+        held = self._held.get(digest)
+        graded = held[1] if held is not None else self._cache.get(digest)
         if graded is None:
             raise ScanError("the classifier has not scored this tool definition")
         if graded.scores is None:
@@ -189,8 +227,9 @@ class DefinitionClassifier:
             distinct.setdefault(canonical_digest(definition), definition)
         return distinct
 
-    def _unscored(self, listing: Mapping[str, Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
-        return {k: d for k, d in listing.items() if self._cache.get(k) is None}
+    def _graded(self, listing: Mapping[str, Mapping[str, Any]]) -> dict[str, _Graded]:
+        found = {digest: self._cache.get(digest) for digest in listing}
+        return {digest: graded for digest, graded in found.items() if graded is not None}
 
 
 def _check(scores: Sequence[CutScores | None], expected: int) -> None:
