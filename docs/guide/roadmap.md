@@ -12,15 +12,13 @@ The proxy is built in five phases. Each phase leaves a runnable system with its 
 
 ## V4 delivery
 
-V4 adds the shared capabilities that V3 deliberately left out, one at a time. Each addition arrives together with at least one real defense that uses it ([ADR 0021](../decisions/0021-v4-capability-first-delivery.md)):
+V4 is delivered as the MRs in the [V4 Defense Plan](../design/v4-defense-plan.md) ([ADR 0024](../decisions/0024-v4-delivery-by-category-tracks.md)):
 
-1. **Scan**, with a Direct and an Indirect defense. It comes first, so defense work in other categories can start in parallel.
-2. **Argument-aware tool adapters**, with a Cross-tool defense.
-3. **`Registry.approved` and re-discovery**, with a Temporal defense.
-4. **A view of server identity**, with an Environment defense.
-5. **A stage for errors and notifications**, when the Indirect defense needs it.
+1. **S1** adds the plan, the attack-doc template and the ADR for this order.
+2. **Shared foundations** come next: Scan rules (S2) and a destination classifier (S3) are on the critical path; a Scan classifier (S4) and an audit hash chain (S5) follow.
+3. **One track per attack category** (Direct, Indirect, Cross-tool, Temporal, Environment), each owned by one person and starting with its attack doc.
 
-Items 2 to 4 do not depend on each other. After a capability is available, further defenses in its category need no changes to core code ([Adding a defense](../guides/adding-a-defense.md)).
+Phases follow dependencies, not dates: D1, T1, T2, C1 and E1 need only S1, so they start while S2 and S3 are built. A new SDK capability still ships with the defense that uses it. After a capability is available, further defenses in its category need no changes to core code ([Adding a defense](../guides/adding-a-defense.md)).
 
 ## Acceptance criteria
 

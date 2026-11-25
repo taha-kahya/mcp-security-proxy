@@ -11,10 +11,27 @@ operator's policy decide what happens. The full explanation is in
 `docs/design/defense-sdk-and-runner.md`. Read both before the first defense
 in a session. This skill is the workflow and the checklist.
 
+V4 is delivered as the MRs in `docs/design/v4-defense-plan.md` (ADR 0024).
+Also read it before the first defense in a session, and find the defense's
+MR id there (for example D3 or C2):
+
+- **Part 1** says, for each attack type, what our defense must do better
+  than the prior art (Arbitus, NVIDIA SkillSpector). Arbitus is AGPL-3.0:
+  take its ideas only, never its code or rule text.
+- **Part 2** says which MRs this one needs and which category track owns it.
+
+The category's attack doc, `docs/attacks/<category>.md`, lists the attacks,
+benign twins and planned rule ids. It is written from
+`docs/attacks/0000-template.md` in the track's phase 0 MR (D0, I0, C0, T0,
+E0).
+
 ## 1. Pin down the design with the user first
 
-Before writing code, settle these with the user. Explain each one plainly,
-with a concrete malicious example and its benign twin:
+Before writing code, settle these with the user. Start from the category's
+attack doc and the plan's Part 1 row for this attack, if they exist; if the
+attack doc is missing, say so, because it is the track's first MR. Explain
+each decision plainly, with a concrete malicious example and its benign
+twin:
 
 | Decision | Example |
 | --- | --- |
@@ -41,20 +58,27 @@ and write a different one.
 Use only `mcp_security_proxy.sdk` (and third-party libraries). If the check
 needs something no capability provides, **stop and tell the user**. Never
 import core or services, and never add a workaround inside the defense.
-ADR 0021 lists the planned V4 capabilities, each delivered as its own MR:
+The plan (Part 2) lists the planned V4 capabilities and the MR that adds
+each one:
 
-- Scan (`instructions`, `secrets`, sensitivity)
-- argument-aware tool adapters (`resource`, `destination`, `sensitivity`)
-- `Registry.approved` and re-discovery
-- a server-identity view
-- a stage for errors and notifications
+- Scan rules: decoding, hidden content, lookalikes, secrets (S2)
+- a destination classifier for URLs and hosts (S3)
+- a local classifier behind Scan (S4)
+- argument-aware tool adapters: `resource`, `destination`, `sensitivity` (C1)
+- `RegistryView.tool_ids()` (D4)
+- re-discovery and the approved version of a definition (T2)
+- a server-identity view (ADR 0022) and `ServerRecord.integrity` (E1)
+- inspection of errors and notifications (I3)
+- inspection of initialize instructions, prompts and resources (I4)
+- redaction outcomes for definitions (D5) and for calls and results (C4)
 
-Check `src/mcp_security_proxy/sdk/` for what exists now; the list above may
-be partly merged.
+Check `src/mcp_security_proxy/sdk/` for what exists now; some of these may
+already be merged. If the defense needs one that hasn't merged, name its MR
+id when you tell the user.
 
 **Model-based checks belong to Scan.** A defense has no I/O and a 2 s
 deadline, so a classifier, an embedding model or a semantic check can't run
-inside it. Those are the job of the Scan capability (ADR 0021, MR 1), which
+inside it. Those are the job of Scan (plan MRs S2 and S4), which
 the defense calls. If Scan hasn't merged and the check needs it, stop and
 tell the user rather than building a model into the defense or settling for
 weaker patterns without saying so.
@@ -184,8 +208,13 @@ never change the test.
 
 ## 7. Scope of one MR
 
-- One defense, or one tightly related rule set, per MR. No core, SDK, or
-  other-category changes in the same MR. Capability changes are their own
-  MR (ADR 0021).
-- In the MR description, list the attacks covered, the benign twins, what's
-  deliberately not covered, and any new signal types.
+- One plan MR per MR, and it must match its scope in the plan. A defense MR
+  has one defense, or one tightly related rule set, and no core, SDK, or
+  other-category changes. Capability changes go in the plan MR that owns
+  them, together with that MR's defense (ADR 0024).
+- Some plan MRs ship more than one piece. D2 and I1 ship inside S2, and
+  C1, D4, T2, E1, I3 and I4 each carry a core change and a defense. Follow the
+  plan rather than splitting them.
+- In the MR description, give the plan MR id, and list the attacks covered,
+  the benign twins, what's deliberately not covered, and any new signal
+  types.

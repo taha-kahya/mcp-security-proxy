@@ -45,6 +45,7 @@ plugins:
 # design doc that is not added below fails the build (mkdocs build --strict).
 exclude_docs: |
   decisions/0000-template.md
+  attacks/0000-template.md
 validation:
   nav:
     omitted_files: warn
@@ -68,6 +69,7 @@ nav:
       - design/discovery-lifecycle.md
       - design/direct-metadata-defenses.md
       - design/defense-sdk-and-runner.md
+      - design/v4-defense-plan.md
       - design/server-identity-and-registration-defense.md
   - Decisions:
       - decisions/README.md
@@ -94,6 +96,7 @@ nav:
       - decisions/0021-v4-capability-first-delivery.md
       - decisions/0022-server-identity-view-and-registration-defense.md
       - decisions/0023-evaluation-readiness-and-transparent-mode.md
+      - decisions/0024-v4-delivery-by-category-tracks.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 
