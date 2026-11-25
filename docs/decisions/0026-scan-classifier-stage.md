@@ -32,12 +32,18 @@ Constraints:
 
 - It reads `ser-1`, a fixed text serialization of the definition: name,
   titles, description, and each parameter's path, type, enum, default,
-  const and description. Input is truncated to 8192 tokens.
+  const and description. Its window is 8192 tokens; a longer definition
+  is not truncated but reported as failed (see *Failure*).
 - It outputs cut scores `s_k = P(level > k)` for LOW, MEDIUM and HIGH.
 - The serialization is pinned by golden strings from the serializer the
   checkpoint was trained with. The weights, config and tokenizer files are
   pinned by SHA-256 in `services/scan/classifier/checkpoints.py`. A bundle
   that does not match is refused at startup.
+- The libraries never read the bundle directory. At startup the pinned
+  files, and nothing else, are copied into a private temporary directory,
+  hashed as they are copied, and loaded from there. Extra files in the
+  bundle directory are ignored, and a file changed after the check is not
+  loaded.
 
 **Grading rule (gated).** Each definition gets one grade:
 
@@ -83,12 +89,23 @@ choice.
   scorer, checkpoint and operating point are fixed for the process, and the
   result's `version` names them, for example
   `classifier-definition-v1+ser-1+high_recall`. Entries hold a grade and
-  three numbers, never content.
-- *Failure.* A scorer error is logged by exception type only, and the
-  definitions stay unscored. A read of an unscored definition raises
-  `ScanError`, so the Runner reports the inspection as `failed` and policy
-  `on_failure` blocks. Failed reports are not cached (ADR 0020), so the
-  next listing retries.
+  three numbers, never content. The cache grows to hold the largest
+  listing it is given, so a listing never evicts its own scores before
+  they are read.
+- *Failure.* A read of a definition without a grade raises `ScanError`, so
+  the Runner reports the inspection as `failed` and policy `on_failure`
+  blocks. Failed reports are not cached (ADR 0020), so the next listing
+  retries. A definition has no grade when:
+  - it is longer than the model's window (graded on its beginning alone,
+    a harmless lead-in would hide a later instruction);
+  - the scorer raised (logged by exception type only), or returned scores
+    that are not numbers in [0, 1], NaN included;
+  - scoring took longer than `scan.classifier.timeout_seconds` (default
+    120). The call is abandoned, and until it returns, new definitions are
+    left without a grade instead of waiting behind it.
+
+  When a batch fails, each definition in it is retried alone, so only the
+  definitions that cause the failure are hidden.
 - *Defense.* `direct_definition_classifier` declares only `scan`, so ADR
   0020's discovery caching applies. It maps grades to the rules `.critical`,
   `.high` and `.medium`. Its reference config has `enabled: false`, because
@@ -129,7 +146,8 @@ distributed separately, and installed at `models/definition-classifier/`
 
 - **Choice of default.** `high_recall` was chosen as the default after
   evaluation results for both operating points were available. The choice
-  is therefore not independently validated. At `high_recall`, most tools
+  is therefore not independently validated, and held-out proxy runs should
+  report `balanced` alongside it. At `high_recall`, most tools
   past the gate are graded critical, so the high/critical split carries
   little information.
 - **Scores are not calibrated probabilities.** Every match therefore has
@@ -146,13 +164,16 @@ distributed separately, and installed at `models/definition-classifier/`
 
 Deferred or known limitations:
 
-- **Coverage.** Text after token 8192 is never seen. Tool results and
-  `initialize` instructions are not classified (definitions only).
-- **No timeout on scoring.** A stuck model holds the classifier's lock, and
-  every listing waits behind it.
-- **Cache eviction.** A listing larger than `cache_entries` can evict its
-  own scores before they are read. Those tools then fail closed for that
-  listing and are rescored on the next one.
+- **Coverage.** Tool results and `initialize` instructions are not
+  classified (definitions only). A legitimate definition longer than 8192
+  tokens is always hidden.
+- **Abandoned calls.** A timed-out call keeps running in its worker thread
+  until the model returns; it cannot be interrupted.
+- **Cache growth.** The cache grows with the largest listing, so a server
+  that lists very many tools raises memory use (a few hundred bytes per
+  entry). Concurrent listings from different principals can still evict
+  each other's scores when together they exceed the cache; those tools fail
+  closed and are rescored on the next listing.
 - **Scoring without the defense.** A configured classifier scores
   definitions whenever any discovery defense is enabled, even if
   `direct_definition_classifier` is disabled. That wastes work but is not

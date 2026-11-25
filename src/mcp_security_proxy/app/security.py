@@ -99,6 +99,7 @@ def _load_classifier(config: ClassifierConfig | None) -> DefinitionClassifier | 
         device=config.device,
         token_budget=config.token_budget,
         cache_entries=config.cache_entries,
+        timeout=config.timeout_seconds,
     )
     logger.info("scan classifier stage: %s", classifier.version)
     return classifier

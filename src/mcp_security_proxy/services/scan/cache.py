@@ -34,5 +34,12 @@ class LruCache(Generic[_V]):
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)
 
+    def reserve(self, entries: int) -> bool:
+        """Grow to hold at least `entries`; True when it grew."""
+        if self._max_entries == 0 or entries <= self._max_entries:
+            return False
+        self._max_entries = entries
+        return True
+
     def __len__(self) -> int:
         return len(self._entries)

@@ -22,6 +22,7 @@ from mcp_security_proxy.services.scan.classifier.serialize import (
 )
 from mcp_security_proxy.services.scan.classifier.stage import (
     DEFAULT_CACHE_ENTRIES,
+    DEFAULT_TIMEOUT_SECONDS,
     DefinitionClassifier,
     Scorer,
 )
@@ -38,20 +39,23 @@ def load_classifier(
     device: str = "cpu",
     token_budget: int = 8192,
     cache_entries: int = DEFAULT_CACHE_ENTRIES,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> DefinitionClassifier:
     """Verify the bundle's hashes, load the model, and build the stage.
     Raises `ClassifierLoadError` for a missing, altered or unknown bundle, or
     when the classifier extra is not installed."""
-    from mcp_security_proxy.services.scan.classifier.torch_scorer import TorchCornScorer
+    from mcp_security_proxy.services.scan.classifier.torch_scorer import load_scorer
 
-    checkpoint = verify_bundle(model_dir)
-    scorer = TorchCornScorer(model_dir, checkpoint, device=device, token_budget=token_budget)
-    return DefinitionClassifier(scorer, checkpoint, operating_point, cache_entries=cache_entries)
+    checkpoint, scorer = load_scorer(model_dir, device=device, token_budget=token_budget)
+    return DefinitionClassifier(
+        scorer, checkpoint, operating_point, cache_entries=cache_entries, timeout=timeout
+    )
 
 
 __all__ = [
     "CHECKPOINTS",
     "DEFAULT_CACHE_ENTRIES",
+    "DEFAULT_TIMEOUT_SECONDS",
     "SERIALIZATION_VERSION",
     "Checkpoint",
     "ClassifierLoadError",

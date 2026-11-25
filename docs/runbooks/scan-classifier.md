@@ -60,6 +60,7 @@ scan:
     device: cpu                                # cuda / mps are untested
     token_budget: 8192                         # padded tokens per batch
     cache_entries: 10000                       # graded definitions kept in memory
+    timeout_seconds: 120                       # longer scoring calls fail closed
 ```
 
 Then set `enabled: true` in `config/defenses/direct_definition_classifier.yaml`.
@@ -68,7 +69,10 @@ tool, and the classifier without the defense does nothing useful.
 
 At startup the proxy logs
 `scan classifier stage: classifier-definition-v1+ser-1+high_recall`.
-Model loading takes about 10 s on CPU.
+Model loading takes about 10 s on CPU. At startup the pinned files are
+copied into a private temporary directory and loaded from there, so the
+temporary directory needs about 600 MB free; other files in `model_dir`,
+such as `SHA256SUMS`, are ignored.
 
 ## Troubleshooting
 
@@ -77,5 +81,8 @@ Model loading takes about 10 s on CPU.
 - **`... is not a known checkpoint` or `... does not match its pinned hash`.**
   The bundle is wrong. Thresholds are valid only for the pinned files.
 - **Every tool is hidden.** Check the log for `classifier failed on N
-  definitions`. Scoring failed, so each inspection is reported `failed` and
+  definitions`, `classifier timed out` or `classifier busy after a
+  timeout`. Scoring failed, so each inspection is reported `failed` and
   blocked by `on_failure`. The next listing retries.
+- **One tool is always hidden.** A definition longer than the model's
+  8192-token window is never graded, so it always fails inspection.

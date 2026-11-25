@@ -9,11 +9,21 @@ Loading matches the scorer the thresholds were fitted with (pinned by
 architecture comes from the bundle's `config.json` with the checkpoint's
 number of outputs, and the fine-tuned weights are loaded strictly, so a
 missing or extra tensor is an error rather than a randomly initialised head.
+
+The libraries read only the pinned files, and only the bytes that were
+hashed: `load_scorer` copies each pinned file into a private temporary
+directory, hashing the same bytes it writes, and loads from there. Other
+files in the bundle directory are never read, and a file changed after
+the check is not loaded.
+
+A text longer than the checkpoint's window is not truncated: its score is
+None, and the stage reports the definition as failed.
 """
 
 from __future__ import annotations
 
 import hashlib
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -31,35 +41,73 @@ class ClassifierLoadError(RuntimeError):
     """The model bundle is missing, altered, or its libraries are not installed."""
 
 
-def sha256_file(path: Path) -> str:
+def sha256_file(path: Path, copy_to: Path | None = None) -> str:
+    """The file's SHA-256; with `copy_to`, also writes the hashed bytes there."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 22), b""):
-            digest.update(block)
+        out = copy_to.open("xb") if copy_to is not None else None
+        try:
+            for block in iter(lambda: handle.read(1 << 22), b""):
+                digest.update(block)
+                if out is not None:
+                    out.write(block)
+        finally:
+            if out is not None:
+                out.close()
     return digest.hexdigest()
 
 
-def verify_bundle(model_dir: Path) -> Checkpoint:
-    """The checkpoint this bundle is, after checking every file's hash."""
+def verify_bundle(model_dir: Path, copy_to: Path | None = None) -> Checkpoint:
+    """The checkpoint this bundle is, after checking every pinned file's
+    hash. With `copy_to`, the pinned files, and nothing else, are copied
+    there as they are hashed."""
     weights = model_dir / WEIGHTS_FILE
     if not weights.is_file():
         raise ClassifierLoadError(f"no {WEIGHTS_FILE} in {model_dir}")
-    checkpoint = CHECKPOINTS.get(sha256_file(weights))
+    target = (lambda name: copy_to / name) if copy_to is not None else (lambda name: None)
+    checkpoint = CHECKPOINTS.get(sha256_file(weights, target(WEIGHTS_FILE)))
     if checkpoint is None:
         raise ClassifierLoadError(
             f"{weights} is not a known checkpoint; thresholds exist only for known weights"
         )
     for name, expected in checkpoint.files.items():
+        if name == WEIGHTS_FILE:
+            continue
         path = model_dir / name
         if not path.is_file():
             raise ClassifierLoadError(f"{checkpoint.name}: {name} is missing from {model_dir}")
-        if name != WEIGHTS_FILE and sha256_file(path) != expected:
+        if sha256_file(path, target(name)) != expected:
             raise ClassifierLoadError(f"{checkpoint.name}: {name} does not match its pinned hash")
     return checkpoint
 
 
+def load_scorer(
+    model_dir: Path, *, device: str, token_budget: int
+) -> tuple[Checkpoint, TorchCornScorer]:
+    """Verify the bundle and load it from a private copy of its pinned files."""
+    _require_extra()
+    with tempfile.TemporaryDirectory(prefix="mcp-proxy-classifier-") as private:
+        checkpoint = verify_bundle(model_dir, copy_to=Path(private))
+        scorer = TorchCornScorer(
+            Path(private), checkpoint, device=device, token_budget=token_budget
+        )
+    return checkpoint, scorer
+
+
+def _require_extra() -> None:
+    try:
+        import safetensors  # noqa: F401
+        import torch  # noqa: F401
+        import transformers  # noqa: F401
+    except ImportError as exc:
+        raise ClassifierLoadError(
+            "scan.classifier needs the classifier extra: uv sync --extra classifier"
+        ) from exc
+
+
 class TorchCornScorer:
-    """`score` is blocking CPU or GPU work; callers run it in a worker thread."""
+    """`score` is blocking CPU or GPU work; callers run it in a worker thread.
+    Build it with `load_scorer`, which hands it a verified private copy."""
 
     def __init__(
         self, model_dir: Path, checkpoint: Checkpoint, *, device: str, token_budget: int
@@ -80,26 +128,32 @@ class TorchCornScorer:
         self._max_tokens = checkpoint.max_tokens
         self._token_budget = token_budget
         self._device = device
-        config = AutoConfig.from_pretrained(str(model_dir), num_labels=checkpoint.num_labels)
+        config = AutoConfig.from_pretrained(
+            str(model_dir), num_labels=checkpoint.num_labels, local_files_only=True
+        )
         model = AutoModelForSequenceClassification.from_config(config, dtype=torch.float32)
         model.load_state_dict(load_file(str(model_dir / WEIGHTS_FILE)), strict=True)
         model.train(False)
         self._model: Any = model.to(device)
-        self._tokenizer: Any = AutoTokenizer.from_pretrained(str(model_dir))
+        self._tokenizer: Any = AutoTokenizer.from_pretrained(str(model_dir), local_files_only=True)
         self._pad = self._tokenizer.pad_token_id
 
-    def score(self, texts: Sequence[str]) -> list[CutScores]:
-        """Cut scores `P(level > k)` for k = 0, 1, 2, in input order."""
+    def score(self, texts: Sequence[str]) -> list[CutScores | None]:
+        """Cut scores `P(level > k)` for k = 0, 1, 2, in input order; None
+        for a text longer than the window, which is never scored truncated."""
+        # One token past the window is enough to tell that a text does not fit.
         encoded = [
-            self._tokenizer(text, truncation=True, max_length=self._max_tokens)["input_ids"]
+            self._tokenizer(text, truncation=True, max_length=self._max_tokens + 1)["input_ids"]
             for text in texts
         ]
+        fits = [i for i, ids in enumerate(encoded) if len(ids) <= self._max_tokens]
         out: dict[int, CutScores] = {}
-        for batch in _batches(encoded, self._token_budget):
-            logits = self._logits([encoded[i] for i in batch])
-            for row, index in zip(_corn_cuts(self._torch, logits), batch, strict=True):
+        for batch in _batches([encoded[i] for i in fits], self._token_budget):
+            indices = [fits[j] for j in batch]
+            logits = self._logits([encoded[i] for i in indices])
+            for row, index in zip(_corn_cuts(self._torch, logits), indices, strict=True):
                 out[index] = row
-        return [out[i] for i in range(len(texts))]
+        return [out.get(i) for i in range(len(texts))]
 
     def _logits(self, batch: list[list[int]]) -> Any:
         torch = self._torch

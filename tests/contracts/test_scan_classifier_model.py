@@ -114,12 +114,9 @@ TOLERANCE = 1e-4
 
 @pytest.fixture(scope="module")
 def scorer() -> Any:
-    from mcp_security_proxy.services.scan.classifier.torch_scorer import (
-        TorchCornScorer,
-        verify_bundle,
-    )
+    from mcp_security_proxy.services.scan.classifier.torch_scorer import load_scorer
 
-    return TorchCornScorer(BUNDLE, verify_bundle(BUNDLE), device="cpu", token_budget=8192)
+    return load_scorer(BUNDLE, device="cpu", token_budget=8192)[1]
 
 
 def test_scores_match_the_reference_scores(scorer: Any) -> None:
@@ -129,6 +126,17 @@ def test_scores_match_the_reference_scores(scorer: Any) -> None:
     scores = scorer.score([serialize_tool(freeze(CASES[n])) for n in names])
     for name, got in zip(names, scores, strict=True):
         assert got == pytest.approx(REFERENCE_SCORES[name], abs=TOLERANCE), name
+
+
+def test_a_definition_past_the_window_is_not_scored_truncated(scorer: Any) -> None:
+    from mcp_security_proxy.services.scan.classifier import serialize_tool
+
+    long = {**CASES["add_benign"], "description": "Adds two integers. " * 3000}
+    short, too_long = scorer.score(
+        [serialize_tool(freeze(CASES["add_benign"])), serialize_tool(freeze(long))]
+    )
+    assert short == pytest.approx(REFERENCE_SCORES["add_benign"], abs=TOLERANCE)
+    assert too_long is None
 
 
 async def test_the_default_operating_point_grades_the_twins_apart() -> None:

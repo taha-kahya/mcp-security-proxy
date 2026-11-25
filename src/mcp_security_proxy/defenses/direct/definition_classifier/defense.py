@@ -15,11 +15,11 @@ deadline, and this defense reports its grade:
 
 The grade becomes the finding's severity; the operator's policy decides
 what each severity does (by default high and critical block, medium needs
-approval). A definition the classifier has not scored raises `ScanError`,
-so the inspection is reported failed rather than clean.
+approval). A definition the classifier has not scored, including one
+longer than the model's 8192-token window, raises `ScanError`, so the
+inspection is reported failed rather than clean.
 
-Does not cover: text past the model's 8192-token window, tool results (the
-classifier reads definitions only), and server instructions from
+Does not cover: tool results (the classifier reads definitions only), and server instructions from
 `initialize`. Scores are not calibrated probabilities, so every finding has
 the same confidence; the evidence names the whole definition because the
 classifier does not localise.

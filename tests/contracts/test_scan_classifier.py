@@ -9,12 +9,15 @@ is installed.
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
+import threading
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from mcp.shared.exceptions import MCPError
 
@@ -40,6 +43,7 @@ from mcp_security_proxy.services.scan.classifier import (
     Thresholds,
     grade,
     serialize_tool,
+    torch_scorer,
     verify_bundle,
 )
 from mcp_security_proxy.services.scan.classifier.checkpoints import DEFINITION_V1, WEIGHTS_FILE
@@ -187,22 +191,41 @@ HIGH = (0.9, 0.5, 0.0)
 CRITICAL = (0.9, 0.9, 0.9)
 
 
-class FakeScorer:
-    """Scores by tool name; records every batch it is asked to score."""
+TOO_LONG = None
+NAN = (float("nan"), 0.0, 0.0)
 
-    def __init__(self, scores: dict[str, tuple[float, float, float]], fail: bool = False):
+
+class FakeScorer:
+    """Scores by tool name; records every batch it is asked to score. A
+    batch containing a name in `crash` raises; with `hold`, scoring blocks
+    until the event is set."""
+
+    def __init__(
+        self,
+        scores: dict[str, tuple[float, float, float] | None],
+        fail: bool = False,
+        crash: frozenset[str] = frozenset(),
+        hold: threading.Event | None = None,
+    ):
         self.scores = scores
         self.fail = fail
+        self.crash = crash
+        self.hold = hold
         self.batches: list[list[str]] = []
 
-    def score(self, texts: Sequence[str]) -> list[tuple[float, float, float]]:
+    def score(self, texts: Sequence[str]) -> list[tuple[float, float, float] | None]:
         self.batches.append(list(texts))
-        if self.fail:
+        if self.hold is not None:
+            self.hold.wait()
+        names = [text.splitlines()[0].removeprefix("tool: ") for text in texts]
+        if self.fail or self.crash & set(names):
             raise RuntimeError("model failed")
-        return [self.scores[text.splitlines()[0].removeprefix("tool: ")] for text in texts]
+        return [self.scores[name] for name in names]
 
 
-def _classifier(scorer: FakeScorer) -> DefinitionClassifier:
+def _classifier(
+    scorer: FakeScorer, *, cache_entries: int = 16, timeout: float = 120.0
+) -> DefinitionClassifier:
     checkpoint = DEFINITION_V1
     fake = type(checkpoint)(
         name="fake",
@@ -212,7 +235,9 @@ def _classifier(scorer: FakeScorer) -> DefinitionClassifier:
         files=checkpoint.files,
         operating_points={OperatingPoint.HIGH_RECALL: T},
     )
-    return DefinitionClassifier(scorer, fake, OperatingPoint.HIGH_RECALL, cache_entries=16)
+    return DefinitionClassifier(
+        scorer, fake, OperatingPoint.HIGH_RECALL, cache_entries=cache_entries, timeout=timeout
+    )
 
 
 async def test_results_come_from_one_batch_and_are_cached() -> None:
@@ -255,6 +280,76 @@ async def test_a_scorer_failure_leaves_definitions_unscored_and_is_retried() -> 
     assert len(scorer.batches) == 2
 
 
+async def test_a_definition_longer_than_the_window_is_never_clean() -> None:
+    scorer = FakeScorer({"long": TOO_LONG})
+    classifier = _classifier(scorer)
+
+    await classifier.prepare([{"name": "long"}])
+    await classifier.prepare([{"name": "long"}])
+
+    with pytest.raises(ScanError, match="longer than"):
+        classifier.result({"name": "long"})
+    assert len(scorer.batches) == 1  # the outcome is cached, not rescored
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [NAN, (0.5, float("inf"), 0.0), (1.5, 0.0, 0.0), (-0.1, 0.0, 0.0)],
+    ids=["nan", "inf", "above-one", "negative"],
+)
+async def test_scores_that_are_not_probabilities_fail_the_scan(
+    bad: tuple[float, float, float],
+) -> None:
+    classifier = _classifier(FakeScorer({"a": bad, "b": CLEAN}))
+    await classifier.prepare([{"name": "a"}, {"name": "b"}])
+    with pytest.raises(ScanError):
+        classifier.result({"name": "a"})
+    assert classifier.result({"name": "b"}).matches == ()  # contained to "a"
+
+
+async def test_one_failing_definition_does_not_unscore_the_listing() -> None:
+    scorer = FakeScorer({"a": CLEAN, "b": HIGH, "c": CLEAN}, crash=frozenset({"b"}))
+    classifier = _classifier(scorer)
+
+    await classifier.prepare([{"name": "a"}, {"name": "b"}, {"name": "c"}])
+
+    assert classifier.result({"name": "a"}).matches == ()
+    assert classifier.result({"name": "c"}).matches == ()
+    with pytest.raises(ScanError):
+        classifier.result({"name": "b"})
+    assert scorer.batches[1:] == [["tool: a"], ["tool: b"], ["tool: c"]]
+
+
+async def test_a_listing_larger_than_the_cache_keeps_its_scores() -> None:
+    classifier = _classifier(FakeScorer({"a": CLEAN, "b": HIGH, "c": CRITICAL}), cache_entries=2)
+    listing = [{"name": "a"}, {"name": "b"}, {"name": "c"}]
+
+    await classifier.prepare(listing)
+
+    assert [m.label for d in listing for m in classifier.result(d).matches] == ["high", "critical"]
+
+
+async def test_a_hung_scorer_times_out_and_fails_closed_until_it_returns() -> None:
+    hold = threading.Event()
+    scorer = FakeScorer({"a": CLEAN, "b": CLEAN}, hold=hold)
+    classifier = _classifier(scorer, timeout=0.05)
+
+    await classifier.prepare([{"name": "a"}])  # times out; does not hang
+    await classifier.prepare([{"name": "b"}])  # not queued behind the stuck call
+    for name in ("a", "b"):
+        with pytest.raises(ScanError):
+            classifier.result({"name": name})
+    assert scorer.batches == [["tool: a"]]
+
+    hold.set()
+    for _ in range(200):  # until the abandoned call returns
+        if not classifier._busy.is_set():
+            break
+        await anyio.sleep(0.01)
+    await classifier.prepare([{"name": "b"}])
+    assert classifier.result({"name": "b"}).matches == ()
+
+
 async def test_scan_without_a_classifier_refuses_poisoning() -> None:
     scan = Scan(RuleScanner())
     await scan.prepare([{"name": "a"}])  # a no-op
@@ -274,6 +369,36 @@ def test_unknown_weights_are_refused(tmp_path: Path) -> None:
     (tmp_path / WEIGHTS_FILE).write_bytes(b"not the checkpoint")
     with pytest.raises(ClassifierLoadError, match="not a known checkpoint"):
         verify_bundle(tmp_path)
+
+
+def test_only_the_pinned_files_are_copied_for_loading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle, private = tmp_path / "bundle", tmp_path / "private"
+    bundle.mkdir()
+    private.mkdir()
+    files = {WEIGHTS_FILE: b"weights", "tokenizer.json": b"{}"}
+    for name, data in files.items():
+        (bundle / name).write_bytes(data)
+    (bundle / "vocab.txt").write_text("not pinned")  # a file a tokenizer might read
+    pinned = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+    fake = type(DEFINITION_V1)(
+        name="fake",
+        serialization="ser-1",
+        max_tokens=8,
+        num_labels=3,
+        files=pinned,
+        operating_points={},
+    )
+    monkeypatch.setattr(torch_scorer, "CHECKPOINTS", {pinned[WEIGHTS_FILE]: fake})
+
+    assert verify_bundle(bundle, copy_to=private) is fake
+    assert {p.name: p.read_bytes() for p in private.iterdir()} == files
+
+    (bundle / "tokenizer.json").write_bytes(b"{ }")
+    (tmp_path / "again").mkdir()
+    with pytest.raises(ClassifierLoadError, match="does not match"):
+        verify_bundle(bundle, copy_to=tmp_path / "again")
 
 
 def test_every_known_checkpoint_pins_its_tokenizer_and_config() -> None:
@@ -346,6 +471,14 @@ async def test_a_listing_the_classifier_cannot_score_hides_every_tool() -> None:
 
     assert await proxy.orchestrator.list_tools(ALICE) == []
     scorer.fail = False
+    assert [t.name for t in await proxy.orchestrator.list_tools(ALICE)] == ["server_a__read"]
+
+
+async def test_a_tool_the_classifier_cannot_score_hides_only_that_tool() -> None:
+    scores = {"read": CLEAN, "write": TOO_LONG, "exec": CLEAN}
+    scorer = FakeScorer(scores, crash=frozenset({"exec"}))
+    proxy = _proxy(scorer, MemorySink())
+
     assert [t.name for t in await proxy.orchestrator.list_tools(ALICE)] == ["server_a__read"]
 
 

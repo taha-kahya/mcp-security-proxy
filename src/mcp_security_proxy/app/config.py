@@ -87,6 +87,8 @@ class ClassifierConfig(BaseModel):
     device: str = "cpu"
     token_budget: int = Field(default=8192, ge=512)
     cache_entries: int = Field(default=10_000, ge=1)
+    # A scoring call that takes longer is abandoned and its tools fail closed.
+    timeout_seconds: float = Field(default=120.0, gt=0)
 
 
 class ScanConfig(BaseModel):
