@@ -10,8 +10,11 @@ apply when that injection went undetected.
 
 Every example in this doc was written for it from the public sources listed.
 A held-out evaluation exists for this category in the research repository.
-Its payloads, prompts and results are not design input for this doc or for
-the defenses built from it.
+At the class level, it targets read-then-send across separate servers,
+delivered through content the agent retrieves. The first attack type below
+covers that class, including its relay and split-payload variants. The
+evaluation's payloads, prompts, names and results are not design input for
+this doc or for the defenses built from it.
 
 ## Attacks
 
@@ -38,11 +41,17 @@ privileged action" is added here, as the template asks for new types.
   - A sensitive record is read and the summary goes to an internal
     recipient that the operator lists as internal.
   - A sensitive read followed by a write to an internal store, with no send.
+  - The user asks, in the conversation, to read a sensitive record and send
+    it outside. The calls are the same as the attack's, so the rule fires.
+    Policy decides, by mapping the rule to `require_approval` (see "Not
+    covered: the user's intent").
 - **Where the proxy sees it.** `before_execution` of the send, using the
   task's History: earlier operations' `action.operation`,
   `action.resource` and `action.sensitivity`, and the send's
   `action.destination`. These come from `/arguments/key` on the read and
   `/arguments/recipient` on the send, through the tool adapter (C1).
+  History holds the task's calls to every server, so the read and the send
+  are linked even when separate servers provide them, as they usually do.
 - **Evasions to expect.**
   - Relaying through an intermediate tool: read, write the data to notes,
     and send it in a later turn. The original read stays in History, so
@@ -50,6 +59,10 @@ privileged action" is added here, as the template asks for new types.
   - Waiting until the read is older than the window.
   - Sending through a tool the operator hasn't classified, so its operation
     is `unknown`.
+  - Splitting the instruction across several retrieved items, so no one
+    item holds the whole chain. Detecting the injection is the Indirect
+    track's job; this rule looks at the calls, so the split doesn't evade
+    it.
   - Encoding or splitting the data across several sends. The rule doesn't
     look at content, so this doesn't evade it. It does evade a rule that
     matches content.
@@ -236,6 +249,11 @@ fixtures.
   clean.
 - Malicious: a read still `pending` when the send is authorized → counted.
 - Benign twin: an external send with no earlier read → clean.
+- Malicious: the read on `server_a` and the send on `server_b`, in the same
+  task → `sensitive_to_external` (separate servers are linked).
+- Expected finding: the user asks to read a sensitive record and send it to
+  an outside partner → `sensitive_to_external`. The rule can't see intent;
+  the test pins that it fires, so policy (`require_approval`) decides.
 
 **C2: `cross_tool_destination`**
 
