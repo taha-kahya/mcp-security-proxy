@@ -20,6 +20,7 @@ from mcp_security_proxy.core.proxy.routing.table import RoutingTable
 from mcp_security_proxy.core.runner import (
     ContextFactory,
     DefenseCatalog,
+    DefenseLoadError,
     DefenseSpec,
     ExecutionPlan,
     Runner,
@@ -51,6 +52,11 @@ logger = logging.getLogger(__name__)
 
 # Every capability the SDK defines is provided by the core.
 AVAILABLE_CAPABILITIES = frozenset(Capability)
+
+# The defense that reads the classifier stage. Enabled without
+# `scan.classifier`, it would hide every tool, which an evaluation could
+# misread as blocking, so startup refuses that combination (ADR 0026).
+CLASSIFIER_DEFENSE_ID = "direct_definition_classifier"
 
 
 @dataclass(frozen=True)
@@ -84,10 +90,22 @@ def load_security(config: ProxyConfig, catalog: DefenseCatalog) -> SecuritySetup
         if config.tools_path is not None
         else ConfiguredToolAdapter.empty()
     )
+    _check_classifier_pairing(plan.defense_ids(), config.scan.classifier)
     # Built here so its Unicode data, and the model if configured, load
     # before any upstream server starts.
     scan = Scan(RuleScanner(), _load_classifier(config.scan.classifier))
     return SecuritySetup(policy, plan, semantics, config.defense_deadline_seconds, scan)
+
+
+def _check_classifier_pairing(defense_ids: list[str], config: ClassifierConfig | None) -> None:
+    enabled = CLASSIFIER_DEFENSE_ID in defense_ids
+    if enabled and config is None:
+        raise DefenseLoadError(
+            f"defense {CLASSIFIER_DEFENSE_ID!r} is enabled but scan.classifier is not "
+            "configured; every tool would fail inspection and be hidden"
+        )
+    if config is not None and not enabled:
+        logger.warning("scan.classifier is configured but %s is disabled", CLASSIFIER_DEFENSE_ID)
 
 
 def _load_classifier(config: ClassifierConfig | None) -> DefinitionClassifier | None:

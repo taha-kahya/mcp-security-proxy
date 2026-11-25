@@ -21,6 +21,9 @@ import anyio
 import pytest
 from mcp.shared.exceptions import MCPError
 
+from mcp_security_proxy.app.config import ProxyConfig
+from mcp_security_proxy.app.security import load_security
+from mcp_security_proxy.core.runner import DefenseLoadError, StaticCatalog
 from mcp_security_proxy.defenses.direct.definition_classifier import CRITICAL_RULE
 from mcp_security_proxy.defenses.direct.definition_classifier import (
     create as create_classifier_defense,
@@ -348,6 +351,44 @@ async def test_a_hung_scorer_times_out_and_fails_closed_until_it_returns() -> No
         await anyio.sleep(0.01)
     await classifier.prepare([{"name": "b"}])
     assert classifier.result({"name": "b"}).matches == ()
+
+
+def _startup_config(tmp_path: Path, *, defense: bool, classifier: bool) -> ProxyConfig:
+    defenses = tmp_path / "defenses"
+    defenses.mkdir()
+    (defenses / "c.yaml").write_text(f"id: direct_definition_classifier\nenabled: {defense}\n")
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("schema_version: 1\nprincipals: {}\n")
+    return ProxyConfig.model_validate(
+        {
+            "identity": {"stdio_principal": "agent"},
+            "policy_path": str(policy),
+            "audit_log_path": str(tmp_path / "audit.jsonl"),
+            "servers": [],
+            "defenses_path": str(defenses),
+            "scan": {"classifier": {"model_dir": str(tmp_path)}} if classifier else {},
+        }
+    )
+
+
+CLASSIFIER_CATALOG = StaticCatalog({"direct_definition_classifier": create_classifier_defense})
+
+
+def test_the_defense_without_a_classifier_stops_startup(tmp_path: Path) -> None:
+    """Otherwise every tool would be hidden, which an evaluation arm could
+    misread as the defense blocking everything."""
+    with pytest.raises(DefenseLoadError, match="scan.classifier is not configured"):
+        load_security(_startup_config(tmp_path, defense=True, classifier=False), CLASSIFIER_CATALOG)
+
+
+def test_a_classifier_without_the_defense_is_only_a_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    config = _startup_config(tmp_path, defense=False, classifier=True)
+    # Reaching the model load (an empty model_dir) proves the pairing passed.
+    with pytest.raises(ClassifierLoadError):
+        load_security(config, CLASSIFIER_CATALOG)
+    assert "direct_definition_classifier is disabled" in caplog.text
 
 
 async def test_scan_without_a_classifier_refuses_poisoning() -> None:

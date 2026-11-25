@@ -64,8 +64,9 @@ scan:
 ```
 
 Then set `enabled: true` in `config/defenses/direct_definition_classifier.yaml`.
-Enable both or neither: the defense without the classifier hides every
-tool, and the classifier without the defense does nothing useful.
+Enable both or neither: the defense without the classifier stops the proxy
+at startup, and the classifier without the defense does nothing useful
+(startup logs a warning).
 
 At startup the proxy logs
 `scan classifier stage: classifier-definition-v1+ser-1+high_recall`.

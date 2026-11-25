@@ -179,10 +179,11 @@ Deferred or known limitations:
 - **Scoring without the defense.** A configured classifier scores
   definitions whenever any discovery defense is enabled, even if
   `direct_definition_classifier` is disabled. That wastes work but is not
-  unsafe.
+  unsafe; startup logs a warning.
 - **Defense without a classifier.** If `direct_definition_classifier` is
-  enabled but `scan.classifier` is not configured, every tool fails
-  inspection and is hidden. This is fail-closed by design.
+  enabled but `scan.classifier` is not configured, startup stops with
+  `DefenseLoadError`. Running would hide every tool, which an evaluation
+  arm could misread as the defense blocking every attack.
 - **Replacing the checkpoint.** A new checkpoint must come with new pinned
   hashes and newly fitted operating points. If its serialization changes,
   it also needs a new `SERIALIZATION_VERSION`.
