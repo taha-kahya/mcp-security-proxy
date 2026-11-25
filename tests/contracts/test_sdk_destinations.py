@@ -283,6 +283,11 @@ def test_only_the_host_decides_not_the_path_query_or_fragment() -> None:
         ("http://user@evil.com\\@127.0.0.1/", DestinationKind.LOOPBACK, "127.0.0.1"),
         ("evil.com\\@10.0.0.1", DestinationKind.PRIVATE, "10.0.0.1"),
         ("http://evil.com\\@metadata.google.internal/", METADATA, "metadata.google.internal"),
+        # The WHATWG reading is invalid (port `pw`, a space in the host, a port
+        # past 65535), but the other reading still connects to the @ host.
+        ("http://user:pw\\@169.254.169.254/", METADATA, "169.254.169.254"),
+        ("http://evil.com \\@169.254.169.254/", METADATA, "169.254.169.254"),
+        ("http://a:99999\\@169.254.169.254/", METADATA, "169.254.169.254"),
     ],
 )
 def test_a_backslash_before_an_at_classifies_both_readings(
@@ -304,6 +309,8 @@ def test_a_backslash_before_an_at_classifies_both_readings(
             "private_address",
         ),  # the WHATWG reading is the sensitive one
         ("http://evil.com/\\@169.254.169.254", "unresolved_name"),  # the @ is in the path
+        ("http://a:b\\@evil.com/", "bad_port"),  # the other reading isn't internal
+        ("http://a:b\\@evil.com:x/", "bad_port"),  # neither reading parses
     ],
 )
 def test_an_ambiguous_authority_changes_the_label_only_when_more_sensitive(

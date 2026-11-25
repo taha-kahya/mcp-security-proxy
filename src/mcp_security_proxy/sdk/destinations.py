@@ -121,7 +121,9 @@ def _more_sensitive(candidate: Destination, current: Destination) -> bool:
     return _INTERNAL_PRIORITY.index(candidate.kind) < _INTERNAL_PRIORITY.index(current.kind)
 
 
-def _destination(target: _Target) -> Destination:
+def _destination(target: _Reading) -> Destination:
+    if isinstance(target, _InvalidError):
+        return Destination(DestinationKind.INVALID, HostForm.NONE, target.reason)
     if target.host is None:
         return Destination(
             DestinationKind.LOOPBACK, HostForm.NONE, "local_file", scheme=target.scheme
@@ -173,7 +175,11 @@ class _Target:
     encoded: bool  # percent-encoding or Unicode compatibility forms in the host
 
 
-def _parse(value: str) -> list[_Target]:
+# One way a client may read the URL: a target, or why that reading is invalid.
+_Reading = _Target | _InvalidError
+
+
+def _parse(value: str) -> list[_Reading]:
     """The WHATWG reading first, then any other reading a client may make."""
     text = value.strip(_STRIPPED).translate(_REMOVED)
     if not text:
@@ -196,18 +202,25 @@ def _parse(value: str) -> list[_Target]:
     return _targets(scheme, rest[2:])
 
 
-def _targets(scheme: str | None, text: str) -> list[_Target]:
+def _targets(scheme: str | None, text: str) -> list[_Reading]:
     """WHATWG ends the authority at a backslash. `urlsplit`, `urllib.request`
     and httpx don't, so for `evil.com\\@169.254.169.254` they connect to the
-    host after the `@`. That host is returned too, as an alternate."""
-    targets = [_Target(scheme, *_host_and_port(_authority(text)))]
+    host after the `@`. That host is returned too, as an alternate.
+
+    Each reading fails on its own: in `user:pw\\@169.254.169.254` the WHATWG
+    reading has the port `pw`, but the other reading is still a host."""
+    readings = [_reading(scheme, _authority(text))]
     lenient = _lenient_authority(text)
     if lenient is not None:
-        try:
-            targets.append(_Target(scheme, *_host_and_port(lenient)))
-        except _InvalidError:
-            pass  # no client connects to an unparseable host
-    return targets
+        readings.append(_reading(scheme, lenient))
+    return readings
+
+
+def _reading(scheme: str | None, authority: str) -> _Reading:
+    try:
+        return _Target(scheme, *_host_and_port(authority))
+    except _InvalidError as error:
+        return error
 
 
 def _bare_ipv6(text: str) -> bool:
