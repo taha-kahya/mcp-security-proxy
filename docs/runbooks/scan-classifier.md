@@ -60,7 +60,7 @@ scan:
     device: cpu                                # cuda / mps are untested
     token_budget: 8192                         # padded tokens per batch
     cache_entries: 10000                       # graded definitions kept in memory
-    timeout_seconds: 120                       # longer scoring calls fail closed
+    timeout_seconds: 600                       # longer scoring calls fail closed
 ```
 
 Then set `enabled: true` in `config/defenses/direct_definition_classifier.yaml`.

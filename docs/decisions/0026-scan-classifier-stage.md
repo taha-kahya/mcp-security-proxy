@@ -101,7 +101,7 @@ choice.
   - the scorer raised (logged by exception type only), or returned scores
     that are not numbers in [0, 1], NaN included;
   - scoring took longer than `scan.classifier.timeout_seconds` (default
-    120). The call is abandoned, and until it returns, new definitions are
+    600). The call is abandoned, and until it returns, new definitions are
     left without a grade instead of waiting behind it.
 
   When a batch fails, each definition in it is retried alone, so only the

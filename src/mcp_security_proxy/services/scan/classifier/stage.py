@@ -60,7 +60,7 @@ from mcp_security_proxy.services.scan.classifier.serialize import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_CACHE_ENTRIES = 10_000
-DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_TIMEOUT_SECONDS = 600.0
 
 CutScores = tuple[float, float, float]
 
