@@ -79,12 +79,16 @@ def make_event(
 class FakeRegistry:
     definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
     actions: dict[ToolId, Action] = field(default_factory=dict)
+    approved_definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
 
     def current(self, tool_id: ToolId) -> ToolDefinition | None:
         return self.definitions.get(tool_id)
 
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action:
         return self.actions.get(tool_id, Action.unknown(TEST_ADAPTER, "1"))
+
+    def approved(self, tool_id: ToolId) -> ToolDefinition | None:
+        return self.approved_definitions.get(tool_id)
 
 
 @dataclass

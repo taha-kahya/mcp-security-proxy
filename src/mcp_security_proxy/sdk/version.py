@@ -5,5 +5,5 @@ against at startup. `CONTRACT_VERSION` is stamped on every `Event`, so a
 defense can tell which event shape it received.
 """
 
-SDK_VERSION = "1.1.0"
+SDK_VERSION = "1.2.0"
 CONTRACT_VERSION = "1"

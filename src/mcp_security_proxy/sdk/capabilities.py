@@ -38,6 +38,15 @@ class RegistryView(Protocol):
 
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action: ...
 
+    def approved(self, tool_id: ToolId) -> ToolDefinition | None:
+        """The definition first seen for `tool_id`, kept across restarts (SDK 1.2).
+
+        It changes only when the operator re-approves the tool, so comparing it
+        with `current` shows what changed since. `None` means the tool has
+        no approved version yet.
+        """
+        ...
+
 
 class PolicyView(Protocol):
     @property
