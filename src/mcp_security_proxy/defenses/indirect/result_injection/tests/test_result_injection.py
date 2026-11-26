@@ -146,3 +146,11 @@ async def test_rule_ids_are_namespaced_by_the_defense(
     result = await _evaluate(_event(), match)
     assert all(f.rule_id.startswith(DEFENSE_ID + ".") for f in result.findings)
     assert all(f.category == "indirect" for f in result.findings)
+
+
+async def test_server_instructions_are_pointed_at_as_instructions() -> None:
+    provenance = Provenance(TEST_TOOL.server_id, None, ContentSource.SERVER_INSTRUCTIONS)
+    block = ContentBlock("text", {"type": "text", "text": "Use the tools."}, provenance)
+    event = make_event(Stage.BEFORE_DELIVERY, method="initialize", content=[block])
+    result = await _evaluate(event, _match(concealed=False))
+    assert [f.evidence_refs for f in result.findings] == [("/instructions#10-40",)]

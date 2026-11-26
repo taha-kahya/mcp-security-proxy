@@ -30,7 +30,8 @@ def build_proxy_server(
 ) -> Server:
     """`server_info` is the upstream's identity in transparent mode (name,
     version, title, description, website URL, icons), and `instructions` its
-    instructions text; otherwise the proxy reports its own fixed name.
+    instructions text; otherwise the proxy reports its own fixed name and
+    `instructions` is the proxy-written block of inspected instructions (I4).
     `verbatim_tools` (transparent mode)
     lists each tool as the upstream's own JSON, key order and unknown fields
     included."""
@@ -91,7 +92,7 @@ def build_proxy_server(
             "instructions": instructions,
         }
         if server_info
-        else {"name": _NAME}
+        else {"name": _NAME, "instructions": instructions}
     )
     server: Server = Server(
         **server_kwargs,

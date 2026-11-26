@@ -7,6 +7,7 @@ from mcp_security_proxy.services.log.records import (
     DeliveryRecord,
     DiscoveryRecord,
     InspectionSummary,
+    InstructionsRecord,
     MetaDigest,
     OutcomeRecord,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "DeliveryRecord",
     "DiscoveryRecord",
     "InspectionSummary",
+    "InstructionsRecord",
     "JsonlAuditSink",
     "MetaDigest",
     "OutcomeRecord",

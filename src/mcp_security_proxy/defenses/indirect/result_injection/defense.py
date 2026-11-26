@@ -18,6 +18,10 @@ the exact block (`/content/2/text#140-190`, `/structuredContent/notes#0-40`).
 Any other block (image, audio, embedded resource, resource link) can't be
 inspected, so the whole result is `unsupported`, never clean.
 
+A server's `initialize` instructions are inspected the same way at startup,
+pointing at `/instructions` (plan MR I4); the proxy forwards them only when
+no defense found anything.
+
 Does not cover: reworded injections with no hiding (needs Scan's classifier
 stage), protocol errors and notifications (plan MR I3), or injected text in
 call arguments (I2).
@@ -33,6 +37,7 @@ from pydantic import BaseModel, ConfigDict
 from mcp_security_proxy.sdk import (
     Capability,
     ContentBlock,
+    ContentSource,
     Context,
     Event,
     Finding,
@@ -53,8 +58,8 @@ INSPECTED_BLOCK_TYPES = frozenset({"text", STRUCTURED_BLOCK_TYPE})
 
 MANIFEST = Manifest(
     id=DEFENSE_ID,
-    version="0.1.0",
-    sdk_version_range=">=1.1,<2",
+    version="0.2.0",
+    sdk_version_range=">=1.2,<2",
     stages=frozenset({Stage.BEFORE_DELIVERY}),
     required_capabilities=frozenset({Capability.SCAN}),
 )
@@ -98,6 +103,8 @@ def _inspected_value(index: int, block: ContentBlock) -> tuple[str, Any]:
     """The part of the block to scan, and its JSON Pointer in the result."""
     if block.type == STRUCTURED_BLOCK_TYPE:
         return "/structuredContent", block.data
+    if block.provenance.source is ContentSource.SERVER_INSTRUCTIONS:
+        return "/instructions", block.data.get("text", "")
     return f"/content/{index}/text", block.data.get("text", "")
 
 

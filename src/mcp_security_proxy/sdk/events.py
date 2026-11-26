@@ -35,6 +35,8 @@ class ContentSource(StrEnum):
     TOOL_DEFINITION = "tool_definition"
     TOOL_ARGUMENTS = "tool_arguments"
     TOOL_RESULT = "tool_result"
+    # SDK 1.2: a server's `initialize` instructions
+    SERVER_INSTRUCTIONS = "server_instructions"
 
 
 @dataclass(frozen=True)
