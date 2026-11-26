@@ -22,6 +22,8 @@ from mcp_security_proxy.sdk.context import CapabilityNotGrantedError, Context, G
 from mcp_security_proxy.sdk.defense import DEFENSE_ENTRY_POINT_GROUP, Defense, DefenseFactory
 from mcp_security_proxy.sdk.digest import canonical_digest
 from mcp_security_proxy.sdk.events import (
+    ERROR_CONTENT_TYPE,
+    NOTIFICATION_CONTENT_TYPE,
     ContentBlock,
     ContentSource,
     Direction,
@@ -55,6 +57,8 @@ from mcp_security_proxy.sdk.types import Principal, ToolId
 from mcp_security_proxy.sdk.version import CONTRACT_VERSION, SDK_VERSION
 
 __all__ = [
+    "ERROR_CONTENT_TYPE",
+    "NOTIFICATION_CONTENT_TYPE",
     "ABSENT",
     "CONTRACT_VERSION",
     "DEFENSE_ENTRY_POINT_GROUP",

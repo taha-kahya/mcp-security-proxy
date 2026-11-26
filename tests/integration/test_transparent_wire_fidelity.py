@@ -275,3 +275,47 @@ def test_the_upstream_is_listed_once_in_default_mode_across_a_call(tmp_path: Pat
     assert "error" not in response
     assert not response["result"].get("isError")
     assert response["result"]["structuredContent"]["listRequests"] == 1
+
+
+# --- I3: errors and progress messages are inspected ---------------------------
+
+I1_DEFENSE = {"id": "indirect_result_injection", "enabled": True, "settings": {}}
+_CALL = {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {"name": "alpha", "arguments": {}, "_meta": {"progressToken": "agent-token"}},
+}
+
+
+def test_an_injected_progress_message_is_dropped_but_progress_still_relayed(
+    tmp_path: Path,
+) -> None:
+    notifications: list[dict[str, Any]] = []
+    _exchange(
+        tmp_path,
+        [_CALL],
+        upstream_args=["--progress", "--progress-inject"],
+        notifications=notifications,
+        await_notifications=2,
+        defenses=[I1_DEFENSE],
+    )
+    progress = [n["params"] for n in notifications if n["method"] == "notifications/progress"]
+    assert progress == [
+        {"progressToken": "agent-token", "progress": 1, "total": 2, "message": "step 1"},
+        {"progressToken": "agent-token", "progress": 2, "total": 2},
+    ]
+
+
+def test_an_injected_upstream_error_is_withheld_but_keeps_its_code(tmp_path: Path) -> None:
+    lines = _exchange(tmp_path, [_CALL], upstream_args=["--error-inject"], defenses=[I1_DEFENSE])
+    error = json.loads(lines[2])["error"]
+    assert error["code"] == -32000
+    assert error["message"].startswith("Upstream error withheld")
+    assert "hosts.yml" not in error["message"]
+
+
+def test_an_ordinary_upstream_error_reaches_the_agent_unchanged(tmp_path: Path) -> None:
+    lines = _exchange(tmp_path, [_CALL], upstream_args=["--error-benign"], defenses=[I1_DEFENSE])
+    error = json.loads(lines[2])["error"]
+    assert error == {"code": -32000, "message": "Invalid params: 'path' must be a relative path"}

@@ -12,7 +12,7 @@ History happen against the same history, even under concurrent calls.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,7 +21,13 @@ from mcp import types
 
 from mcp_security_proxy.core.guard import Decision, Guard, Outcome
 from mcp_security_proxy.core.identity import TaskResolver
-from mcp_security_proxy.core.proxy.events import delivery_event, discovery_event, execution_event
+from mcp_security_proxy.core.proxy.events import (
+    delivery_event,
+    discovery_event,
+    error_event,
+    execution_event,
+    progress_event,
+)
 from mcp_security_proxy.core.proxy.locks import TaskLocks
 from mcp_security_proxy.core.proxy.redaction import redact
 from mcp_security_proxy.core.proxy.routing.table import RoutedTool
@@ -201,14 +207,48 @@ class ProxyControl:
     async def review_result(
         self, authorization: CallAuthorization, result: types.CallToolResult
     ) -> DeliveryReview:
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: delivery_event(
+                authorization.correlation_id, routed.tool_id, result, action
+            ),
+        )
+
+    async def review_error(
+        self, authorization: CallAuthorization, error: types.ErrorData
+    ) -> DeliveryReview:
+        """An upstream JSON-RPC error goes through delivery inspection too (I3)."""
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: error_event(
+                authorization.correlation_id, routed.tool_id, error, action
+            ),
+        )
+
+    async def review_progress(
+        self, authorization: CallAuthorization, progress: float, total: float | None, message: str
+    ) -> DeliveryReview:
+        """A progress message goes through delivery inspection before it is relayed (I3)."""
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: progress_event(
+                authorization.correlation_id, routed.tool_id, progress, total, message, action
+            ),
+        )
+
+    async def _review_delivery(
+        self,
+        authorization: CallAuthorization,
+        build: Callable[[RoutedTool, Action], Event],
+    ) -> DeliveryReview:
         routed, action = authorization.routed, authorization.action
         if routed is None or action is None:
-            raise RuntimeError("review_result() requires an authorization that permits dispatch")
+            raise RuntimeError("delivery review requires an authorization that permits dispatch")
         policy = self._policy.for_principal(authorization.principal)
         if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
             return DeliveryReview(self._guard.review(policy, ()), (), inspected=False)
 
-        event = delivery_event(authorization.correlation_id, routed.tool_id, result, action)
+        event = build(routed, action)
         reports = await self._inspect(
             event, authorization.principal, authorization.task, policy, self._definition(routed)
         )

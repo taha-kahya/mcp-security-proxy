@@ -15,12 +15,15 @@ Severity follows where the evidence is, not just the phrase:
 
 Text blocks and structured content are inspected, each finding pointing at
 the exact block (`/content/2/text#140-190`, `/structuredContent/notes#0-40`).
+So are an upstream's JSON-RPC error for the call (`/error/message`,
+`/error/data/...`) and the message of a progress notification
+(`/params/message`), which agents read as closely as results (plan MR I3).
 Any other block (image, audio, embedded resource, resource link) can't be
 inspected, so the whole result is `unsupported`, never clean.
 
 Does not cover: reworded injections with no hiding (needs Scan's classifier
-stage), protocol errors and notifications (plan MR I3), or injected text in
-call arguments (I2).
+stage), log notifications (`notifications/message`, which the proxy doesn't
+relay), or injected text in call arguments (I2).
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from mcp_security_proxy.sdk import (
+    ERROR_CONTENT_TYPE,
+    NOTIFICATION_CONTENT_TYPE,
     Capability,
     ContentBlock,
     Context,
@@ -49,12 +54,14 @@ CONCEALED_INSTRUCTIONS_RULE = f"{DEFENSE_ID}.concealed_instructions"
 INSTRUCTIONS_RULE = f"{DEFENSE_ID}.instructions"
 
 STRUCTURED_BLOCK_TYPE = "structured"
-INSPECTED_BLOCK_TYPES = frozenset({"text", STRUCTURED_BLOCK_TYPE})
+INSPECTED_BLOCK_TYPES = frozenset(
+    {"text", STRUCTURED_BLOCK_TYPE, ERROR_CONTENT_TYPE, NOTIFICATION_CONTENT_TYPE}
+)
 
 MANIFEST = Manifest(
     id=DEFENSE_ID,
-    version="0.1.0",
-    sdk_version_range=">=1.1,<2",
+    version="0.2.0",
+    sdk_version_range=">=1.2,<2",
     stages=frozenset({Stage.BEFORE_DELIVERY}),
     required_capabilities=frozenset({Capability.SCAN}),
 )
@@ -63,9 +70,9 @@ MANIFEST = Manifest(
 RULES: Mapping[str, tuple[Severity, str]] = {
     CONCEALED_INSTRUCTIONS_RULE: (
         Severity.HIGH,
-        "tool result contains instructions to the model hidden by encoding or markup",
+        "tool output contains instructions to the model hidden by encoding or markup",
     ),
-    INSTRUCTIONS_RULE: (Severity.LOW, "tool result contains text addressed to the model"),
+    INSTRUCTIONS_RULE: (Severity.LOW, "tool output contains text addressed to the model"),
 }
 
 
@@ -98,6 +105,10 @@ def _inspected_value(index: int, block: ContentBlock) -> tuple[str, Any]:
     """The part of the block to scan, and its JSON Pointer in the result."""
     if block.type == STRUCTURED_BLOCK_TYPE:
         return "/structuredContent", block.data
+    if block.type == ERROR_CONTENT_TYPE:
+        return "/error", block.data
+    if block.type == NOTIFICATION_CONTENT_TYPE:
+        return "/params", block.data
     return f"/content/{index}/text", block.data.get("text", "")
 
 

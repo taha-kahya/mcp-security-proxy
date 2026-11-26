@@ -35,6 +35,16 @@ class ContentSource(StrEnum):
     TOOL_DEFINITION = "tool_definition"
     TOOL_ARGUMENTS = "tool_arguments"
     TOOL_RESULT = "tool_result"
+    # SDK 1.2: an upstream's JSON-RPC error for a call, and its notifications
+    TOOL_ERROR = "tool_error"
+    NOTIFICATION = "notification"
+
+
+# Block types for content that isn't a result block (SDK 1.2). An `error` block's
+# data is `{message, data}` of the JSON-RPC error; a `notification` block's is
+# `{message}` of a `notifications/progress`.
+ERROR_CONTENT_TYPE = "error"
+NOTIFICATION_CONTENT_TYPE = "notification"
 
 
 @dataclass(frozen=True)
@@ -51,7 +61,8 @@ class ContentBlock:
     """One typed content block, kept whole rather than flattened to text.
 
     `type` is the protocol's own block type (`text`, `image`, `resource`, ...,
-    or `structured` for a result's structured content). Types a defense does
+    `structured` for a result's structured content, or `error` and
+    `notification` for an upstream error or notification). Types a defense does
     not understand are still delivered; the defense reports `unsupported`.
     """
 

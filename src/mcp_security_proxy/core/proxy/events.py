@@ -15,6 +15,8 @@ from uuid import uuid4
 from mcp import types
 
 from mcp_security_proxy.sdk import (
+    ERROR_CONTENT_TYPE,
+    NOTIFICATION_CONTENT_TYPE,
     Action,
     ContentBlock,
     ContentSource,
@@ -65,6 +67,48 @@ def delivery_event(
         tool_id=tool_id,
         payload=result.model_dump(mode="json", by_alias=True, exclude_none=True),
         content=result_content(tool_id, result),
+        action=action,
+    )
+
+
+def error_event(
+    correlation_id: str, tool_id: ToolId, error: types.ErrorData, action: Action
+) -> Event:
+    """An upstream's JSON-RPC error for a call, inspected before the agent sees it (I3)."""
+    body: dict[str, Any] = {"message": error.message}
+    if error.data is not None:
+        body["data"] = error.data
+    provenance = Provenance(tool_id.server_id, tool_id, ContentSource.TOOL_ERROR)
+    return _event(
+        stage=Stage.BEFORE_DELIVERY,
+        direction=Direction.SERVER_TO_CLIENT,
+        method="tools/call",
+        correlation_id=correlation_id,
+        tool_id=tool_id,
+        payload={"error": {"code": error.code, **body}},
+        content=(ContentBlock(ERROR_CONTENT_TYPE, body, provenance),),
+        action=action,
+    )
+
+
+def progress_event(
+    correlation_id: str,
+    tool_id: ToolId,
+    progress: float,
+    total: float | None,
+    message: str,
+    action: Action,
+) -> Event:
+    """A progress notification's message, inspected before it is relayed (I3)."""
+    provenance = Provenance(tool_id.server_id, tool_id, ContentSource.NOTIFICATION)
+    return _event(
+        stage=Stage.BEFORE_DELIVERY,
+        direction=Direction.SERVER_TO_CLIENT,
+        method="notifications/progress",
+        correlation_id=correlation_id,
+        tool_id=tool_id,
+        payload={"progress": progress, "total": total, "message": message},
+        content=(ContentBlock(NOTIFICATION_CONTENT_TYPE, {"message": message}, provenance),),
         action=action,
     )
 
