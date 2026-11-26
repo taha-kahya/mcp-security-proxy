@@ -23,6 +23,7 @@ from pydantic.alias_generators import to_camel
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
+from mcp_security_proxy.app.integrity import check_servers
 from mcp_security_proxy.app.security import (
     build_control,
     build_registry,
@@ -54,12 +55,15 @@ class ProxyApp:
         await self._serve(self.server)
 
 
-def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextManager[ClientSession]:
+def _connect_upstream(
+    upstream: UpstreamServerConfig, command: str
+) -> AbstractAsyncContextManager[ClientSession]:
+    """`command` is what to launch: for a pinned server, the file that was hashed."""
     if upstream.transport == "stdio":
-        return connect_stdio_upstream(upstream.command, upstream.args)
+        return connect_stdio_upstream(command, upstream.args)
     assert upstream.port is not None and upstream.url is not None  # enforced by config validation
     return spawn_streamable_http_upstream(
-        upstream.command, upstream.args, upstream.host, upstream.port, upstream.url
+        command, upstream.args, upstream.host, upstream.port, upstream.url
     )
 
 
@@ -173,6 +177,7 @@ async def build_app(
     audit = JsonlAuditSink.create(config.audit_log_path)
     agent_facing = build_agent_facing(config)
     warn_about_principal_mismatches(security.policy, config.agent_principal_ids())
+    integrity = check_servers(config.servers)
 
     async with AsyncExitStack() as stack:
         state = open_state(config.state)
@@ -181,7 +186,9 @@ async def build_app(
         await _recover_history(history)
 
         sessions = {
-            upstream.id: await stack.enter_async_context(_connect_upstream(upstream))
+            upstream.id: await stack.enter_async_context(
+                _connect_upstream(upstream, integrity[upstream.id].command)
+            )
             for upstream in config.servers
         }
         routing_table = await _discover_tools(sessions, transparent=config.transparent)

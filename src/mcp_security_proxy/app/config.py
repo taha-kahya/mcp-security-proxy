@@ -30,6 +30,9 @@ class UpstreamServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int | None = None
     url: str | None = None
+    # SHA-256 of the file `command` launches, lowercase hex; startup fails on a
+    # mismatch (plan MR E1, `app.integrity`).
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def _require_connection_info_for_http(self) -> UpstreamServerConfig:
