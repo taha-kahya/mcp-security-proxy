@@ -42,7 +42,7 @@ def test_a_matching_pin_is_verified_and_launches_the_hashed_file(tmp_path: Path)
     script = _script(tmp_path)
     result = check_server(_server(str(script), hashlib.sha256(script.read_bytes()).hexdigest()))
     assert result.status is Integrity.VERIFIED
-    assert result.command == str(script.resolve())
+    assert result.command == str(script.absolute())
 
 
 def test_a_changed_file_stops_startup_naming_the_server(tmp_path: Path) -> None:
@@ -66,10 +66,10 @@ def test_an_unpinned_server_is_reported_and_launched_as_configured() -> None:
 def test_a_bare_command_is_resolved_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     interpreter = Path(sys.executable)
     monkeypatch.setenv("PATH", str(interpreter.parent))
-    assert resolve_command(interpreter.name) == interpreter.resolve()
+    assert resolve_command(interpreter.name) == interpreter.absolute()
     result = check_server(_server(interpreter.name, PYTHON_SHA256))
     assert result.status is Integrity.VERIFIED
-    assert result.command == str(interpreter.resolve())
+    assert result.command == str(interpreter.absolute())
 
 
 def test_check_servers_stops_at_the_first_bad_pin(tmp_path: Path) -> None:
@@ -116,3 +116,18 @@ async def test_a_bad_pin_stops_build_app_before_any_server_is_spawned(tmp_path: 
         async with build_app(config):
             pass
     assert not audit.exists()
+
+
+def test_a_symlinked_command_is_launched_by_its_link_and_hashed_through_it(
+    tmp_path: Path,
+) -> None:
+    """A venv's `python` is a symlink; launching the target would leave the venv."""
+    target = _script(tmp_path)
+    link = tmp_path / "link.py"
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks need extra privileges on this platform")
+    result = check_server(_server(str(link), hashlib.sha256(target.read_bytes()).hexdigest()))
+    assert result.status is Integrity.VERIFIED
+    assert result.command == str(link.absolute())

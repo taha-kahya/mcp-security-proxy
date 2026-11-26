@@ -49,12 +49,18 @@ class ServerIntegrity:
 
 
 def resolve_command(command: str) -> Path | None:
-    """The file `command` launches: a path as given, or the first match on PATH."""
+    """The file `command` launches: a path as given, or the first match on PATH.
+
+    The path is made absolute but symlinks are not followed: a virtual
+    environment's `python` is a symlink to the base interpreter, and launching
+    the target would run it outside the environment. Hashing reads through the
+    link, so the pin still covers the file that runs.
+    """
     if Path(command).name != command:
         path = Path(command)
-        return path.resolve() if path.is_file() else None
+        return path.absolute() if path.is_file() else None
     found = shutil.which(command)
-    return Path(found).resolve() if found else None
+    return Path(found).absolute() if found else None
 
 
 def file_sha256(path: Path) -> str:
