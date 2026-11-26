@@ -18,6 +18,7 @@ dependencies = [
 call_budget = "mcp_security_proxy.defenses.samples.call_budget:create"
 direct_hidden_metadata = "mcp_security_proxy.defenses.direct.hidden_metadata:create"
 indirect_result_injection = "mcp_security_proxy.defenses.indirect.result_injection:create"
+temporal_call_rate = "mcp_security_proxy.defenses.temporal.call_rate:create"
 
 [dependency-groups]
 dev = [

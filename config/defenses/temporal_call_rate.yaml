@@ -1,0 +1,13 @@
+# Too many side-effecting calls by one task within a time window (plan MR
+# T1). See src/mcp_security_proxy/defenses/temporal/call_rate.
+#
+# Disabled by default: a rate that fits one deployment blocks another, so
+# max_operations and window_seconds have no defaults. The values below are
+# an example; set them for your workload, then `enabled: true`.
+id: temporal_call_rate
+enabled: false
+settings:
+  max_operations: 30
+  window_seconds: 60
+  operations: [write, send, execute]
+  count_unknown: true
