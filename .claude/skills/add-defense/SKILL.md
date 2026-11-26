@@ -76,6 +76,13 @@ Check `src/mcp_security_proxy/sdk/` for what exists now; some of these may
 already be merged. If the defense needs one that hasn't merged, name its MR
 id when you tell the user.
 
+**Text analysis belongs to Scan.** Decoding, hidden content, injection
+phrases, lookalikes and secrets are `context.scan` methods (S2,
+`docs/decisions/0025-scan-contract-and-rule-stage.md`). Declare
+`Capability.SCAN` and map its matches to your own rule ids and severities;
+never copy a decoder or a phrase list into a defense. If a detector is
+missing, it is a Scan change, not a defense workaround.
+
 **Model-based checks belong to Scan.** A defense has no I/O and a 2 s
 deadline, so a classifier, an embedding model or a semantic check can't run
 inside it. Those are the job of Scan (plan MRs S2 and S4), which
@@ -180,6 +187,11 @@ row below. Each rule needs:
 - [ ] produced signals carry `producer=DEFENSE_ID` and are declared in the
       manifest
 - [ ] every rule id starts with `DEFENSE_ID + "."`
+
+A defense that uses Scan scripts it with
+`make_context(..., scan=FakeScan(matches=(...)))`, so its unit tests check
+how matches become findings. Add its malicious cases and benign twins
+against the real `RuleScanner` in `tests/contracts/test_scan_defenses.py`.
 
 Build events the way the proxy does: discovery events have
 `method="tools/list"` (the template's `_event` helper sets it), so a

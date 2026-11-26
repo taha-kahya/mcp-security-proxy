@@ -1,7 +1,8 @@
 # Defense SDK, Runner, and shared capabilities (V3)
 
 Permanent reference for the contracts defenses are written against and the
-shared capabilities behind them. Promoted from
+shared capabilities behind them. Scan was added in V4 (S2,
+[0025](../decisions/0025-scan-contract-and-rule-stage.md)). Promoted from
 [0017](../decisions/0017-task-boundary-and-state-backends.md),
 [0018](../decisions/0018-enforcement-defaults-and-defense-overrides.md),
 [0019](../decisions/0019-defense-extension-mechanism.md), and
@@ -62,6 +63,7 @@ sequenceDiagram
 | History | `services/history/` | Task-scoped operations and signals, persisted through State. |
 | State | `services/state/` | Scoped versioned records, CAS, atomic `apply`; memory and SQLite. |
 | Policy | `services/policy/` | Adds `enforcement` defaults plus per-defense overrides. |
+| Scan | `services/scan/` | Shared content analysis: rule stage with four detectors, Unicode data, cache. |
 | Approval | `services/approval/` | Interfaces only; not implemented or wired (V5). |
 | Defenses | `defenses/<category>/<name>/` | Manifest, checks, and tests. Imports only the SDK. |
 
@@ -76,8 +78,9 @@ and tuples (`sdk.freeze`).
 - **Context** — `principal`, `task_id`, `policy_version`,
   `state_version` (the history version), `tool_version` (definition
   digest), `signals` (earlier signals in this inspection, limited to
-  required types), plus `registry`, `history`, `policy`, and
-  `private_state`, each raising `CapabilityNotGrantedError` unless declared.
+  required types), plus `registry`, `history`, `policy`,
+  `private_state`, and `scan`, each raising `CapabilityNotGrantedError`
+  unless declared.
 - **Manifest** — `id` (snake_case, equal to the entry-point name),
   `version`, `sdk_version_range` (PEP 440), `stages`,
   `required_capabilities`, `required_signals`, `produced_signals`.
@@ -120,6 +123,19 @@ VersionedValue` (version 0 = absent). *Scope:* one defense and one task.
 *Writes:* `StateChange(key, expected_version, value)` in a `completed`
 result; committed atomically with the inspection's other proposals. A stale
 proposal refuses the request.
+
+**Scan** (`ScanView`) — *Input:* a string or any JSON value. *Output:*
+`hidden()`, `instructions()`, `lookalikes()`, `secrets()`, each async,
+returning a `ScanResult` (`matches`, `version`). A `ScanMatch` has
+`detector`, `kind`, `pointer` (JSON Pointer), `span`, `confidence`,
+`decoded_by`, `concealed`, `in_key`, `stage`, `label`, and `ref`
+(`/description#12-40`); it never contains the text. *Scope:* global and
+stateless; results are cached per detector and content digest.
+*Errors:* `ScanLimitError` (over 1M characters, or more than 256 base64
+or tag segments in one string) and other `ScanError`s propagate, so the
+inspection fails rather than passing unscanned content. *Versioning:*
+`rules-<n>+unicode-<version>`; only the `rules` stage exists
+([0025](../decisions/0025-scan-contract-and-rule-stage.md)).
 
 **State** (`StateStore`, core only) — `read`, `read_scope`, `scopes`,
 `apply` (all-or-nothing), `compare_and_set`. JSON values; reads are frozen.
@@ -213,10 +229,13 @@ enforcement: {on_failure: block}       # optional override, same shape
 - **Unbounded per-task history**; no compaction.
 - **Not inspected:** upstream protocol errors, notifications, resources,
   and prompts (resources and prompts are still not proxied at all).
-- **No scan capability, argument-aware tool adapters, `Registry.approved`,
-  or server-identity view** yet. V4 adds them as planned in the
-  [V4 Defense Plan](v4-defense-plan.md)
+- **Scan has only its rule stage** (S2); the local classifier (S4) is
+  planned behind the same methods. **No argument-aware tool adapters,
+  `Registry.approved`, or server-identity view** yet. V4 adds them as
+  planned in the [V4 Defense Plan](v4-defense-plan.md)
   ([0024](../decisions/0024-v4-delivery-by-category-tracks.md)).
+- **Scan runs on the event loop**, so a scan near the 1M-character limit
+  (up to about 0.5 s per detector) delays other requests.
 - **Definitions are still read once at startup**, so temporal defenses have
   nothing to compare against until re-discovery exists.
 - **Deadlines** cannot interrupt a defense that blocks the event loop.

@@ -36,6 +36,7 @@ from mcp_security_proxy.sdk.testing import (
     TEST_PRINCIPAL,
     FakePolicy,
     FakeRegistry,
+    FakeScan,
     make_event,
 )
 from mcp_security_proxy.services.state import (
@@ -48,6 +49,7 @@ from tests.harness.defenses import ScriptedDefense
 
 ALL_CAPABILITIES = frozenset(Capability)
 TASK = TaskRef(TEST_PRINCIPAL.id, "task")
+SCAN = FakeScan()
 
 
 def _catalog(*defenses: ScriptedDefense) -> StaticCatalog:
@@ -63,7 +65,7 @@ def _plan(*defenses: ScriptedDefense, available: frozenset[Capability] = ALL_CAP
 
 
 def _runner(*defenses: ScriptedDefense, state: InMemoryStateStore | None = None) -> Runner:
-    contexts = ContextFactory(DefenseStateStore(state or InMemoryStateStore()))
+    contexts = ContextFactory(DefenseStateStore(state or InMemoryStateStore()), SCAN)
     return Runner(_plan(*defenses), contexts, deadline_seconds=0.2)
 
 
@@ -186,6 +188,14 @@ async def test_using_an_undeclared_capability_fails_the_inspection() -> None:
 
     results = await _inspect(_runner(ScriptedDefense("peeks", peeks)))
     assert results["peeks"].detail == "raised CapabilityNotGrantedError"
+
+
+async def test_scan_is_granted_only_to_defenses_that_declare_it() -> None:
+    scanning = ScriptedDefense("scanning", capabilities=frozenset({Capability.SCAN}))
+    plain = ScriptedDefense("plain")
+    await _inspect(_runner(scanning, plain))
+    assert scanning.seen_contexts[0].scan is SCAN
+    assert plain.seen_contexts[0].grants.scan is None
 
 
 async def test_signals_reach_consumers_and_failed_producers_fail_them() -> None:

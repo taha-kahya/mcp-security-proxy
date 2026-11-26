@@ -97,6 +97,7 @@ nav:
       - decisions/0022-server-identity-view-and-registration-defense.md
       - decisions/0023-evaluation-readiness-and-transparent-mode.md
       - decisions/0024-v4-delivery-by-category-tracks.md
+      - decisions/0025-scan-contract-and-rule-stage.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
 

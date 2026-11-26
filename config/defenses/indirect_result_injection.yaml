@@ -1,0 +1,6 @@
+# Injected instructions in tool results (plan MR I1): concealed ones are high,
+# plain visible ones low (recorded, not blocked, with the reference policy).
+# See src/mcp_security_proxy/defenses/indirect/result_injection.
+id: indirect_result_injection
+enabled: true
+settings: {}

@@ -92,7 +92,17 @@ def create(settings: Mapping[str, Any]) -> MyCheck:
 
 **Use only what you declare.** The context gives you only the capabilities
 in `required_capabilities` (`registry`, `history`, `policy`,
-`private_state`). Using an undeclared one fails the inspection.
+`private_state`, `scan`). Using an undeclared one fails the inspection.
+
+**Scan** finds evidence in text; your defense decides what it means.
+`await context.scan.instructions(value)` (also `hidden`, `lookalikes`,
+`secrets`) takes a string or any JSON value and returns matches with a
+JSON Pointer and range (`match.ref`, such as `/description#12-40`), the
+decodings that revealed them, and whether they were `concealed`. Map
+matches to your own rule ids and severities, and put `match.ref` in
+`evidence_refs`. Don't catch `ScanError`: an unscanned value must fail the
+inspection, not pass it. See `defenses/indirect/result_injection` for a
+short example.
 
 **Signals** are observations for other defenses (for example, "sensitive
 data seen"). Declare their types in `produced_signals` and set
@@ -140,6 +150,11 @@ async def test_blocks_at_the_limit() -> None:
     result = await defense.evaluate(make_event(action=action(Operation.WRITE)), context)
     assert result.findings
 ```
+
+If your defense uses Scan, pass `scan=FakeScan(matches=(...))` to
+`make_context` to script what Scan returns, so your tests check how
+matches become findings. Test detection itself against the real
+`RuleScanner` in `tests/contracts/test_scan_defenses.py`.
 
 Cover malicious and matched benign cases, plus unsupported content and
 missing context. Put tests in `<your package>/tests/`; pytest collects
@@ -191,6 +206,6 @@ and a blocking finding appears in `rule_refs` as
 
 ## When the SDK isn't enough
 
-If a check needs something no capability provides (content scanning,
-argument-aware tool semantics, or a new stage), don't reach into core. That
+If a check needs something no capability provides (argument-aware tool
+semantics, a new Scan detector, or a new stage), don't reach into core. That
 needs one reviewed SDK and core extension, which then serves every defense.
