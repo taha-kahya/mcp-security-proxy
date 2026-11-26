@@ -9,6 +9,7 @@ from uuid import uuid4
 
 class Outcome(StrEnum):
     ALLOW = "allow"
+    REDACT = "redact"
     BLOCK = "block"
     REQUIRE_APPROVAL = "require_approval"
 
@@ -20,6 +21,8 @@ class Decision:
     reason: str
     policy_version: str
     decision_id: str = field(default_factory=lambda: uuid4().hex)
+    # For `redact`: the evidence references of every finding mapped to it (D5).
+    redactions: tuple[str, ...] = ()
 
     @property
     def permits_dispatch(self) -> bool:

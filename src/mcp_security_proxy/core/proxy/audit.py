@@ -39,6 +39,9 @@ def discovery_record(principal: Principal, discovery: Discovery) -> DiscoveryRec
         policy_version=discovery.policy_version,
         visible_tool_count=len(discovery.visible),
         hidden_by_inspection=tuple(str(r.tool_id) for r in discovery.hidden_by_inspection),
+        redacted=tuple(
+            str(r.tool_id) for r in discovery.visible if r.external_name in discovery.redacted
+        ),
     )
 
 

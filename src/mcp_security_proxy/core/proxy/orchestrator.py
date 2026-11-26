@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
+from contextvars import ContextVar
+from types import MappingProxyType
 from typing import Any, Protocol
 
 import anyio
@@ -47,6 +49,11 @@ logger = logging.getLogger(__name__)
 
 # Upstream errors after which the call may or may not have taken effect.
 _OUTCOME_UNCERTAIN_ERROR_CODES = frozenset({types.CONNECTION_CLOSED, types.REQUEST_TIMEOUT})
+
+
+_REDACTED_WIRE: ContextVar[Mapping[str, Mapping[str, Any]]] = ContextVar(
+    "redacted_wire", default=MappingProxyType({})
+)
 
 
 class ProgressFnT(Protocol):
@@ -95,12 +102,25 @@ class ProxyOrchestrator:
             async with self._control.serialized(principal):
                 discovery = await self._control.discover(principal, self._routing.entries())
         await self._record_or_refuse(discovery_record(principal, discovery))
-        return [routed.external_tool() for routed in discovery.visible]
+        # Transparent mode serializes the wire JSON; this request's redactions
+        # (D5) must replace it too. The middleware runs in this same context.
+        _REDACTED_WIRE.set(MappingProxyType(dict(discovery.redacted)))
+        return [self._exposed(routed, discovery.redacted) for routed in discovery.visible]
+
+    @staticmethod
+    def _exposed(routed: RoutedTool, redacted: Mapping[str, Mapping[str, Any]]) -> types.Tool:
+        definition = redacted.get(routed.external_name)
+        if definition is None:
+            return routed.external_tool()
+        return types.Tool.model_validate({**definition, "name": routed.external_name})
 
     def wire_definition(self, external_name: str) -> Mapping[str, Any] | None:
-        """The upstream's own JSON for an advertised tool, when captured."""
+        """The upstream's own JSON for an advertised tool, when captured, with
+        this request's redactions applied."""
         routed = self._routing.find(external_name)
-        return routed.external_wire() if routed else None
+        if routed is None or routed.external_wire() is None:
+            return None
+        return _REDACTED_WIRE.get().get(external_name, routed.external_wire())
 
     async def call_tool(
         self,
