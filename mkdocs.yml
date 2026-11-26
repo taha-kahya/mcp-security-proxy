@@ -71,6 +71,8 @@ nav:
       - design/defense-sdk-and-runner.md
       - design/v4-defense-plan.md
       - design/server-identity-and-registration-defense.md
+  - Attacks:
+      - attacks/indirect.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
