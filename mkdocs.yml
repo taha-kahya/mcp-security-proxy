@@ -73,6 +73,7 @@ nav:
       - design/server-identity-and-registration-defense.md
   - Attacks:
       - attacks/direct.md
+      - attacks/indirect.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
