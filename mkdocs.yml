@@ -75,6 +75,7 @@ nav:
       - attacks/direct.md
       - attacks/indirect.md
       - attacks/temporal.md
+      - attacks/environment.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
@@ -104,6 +105,7 @@ nav:
       - decisions/0025-scan-contract-and-rule-stage.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
+      - runbooks/server-admission.md
 
 extra_css:
   - assets/site.css
