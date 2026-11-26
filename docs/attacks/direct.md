@@ -211,7 +211,7 @@ check and may change there; this table is updated in the same MR.
 | `direct_hidden_metadata.data_uri` | Hidden instructions | Scan hidden | low | D2 (merged) |
 | `direct_definition_classifier.{critical,high,medium}` | Plain instructions, steering | Scan classifier (whole definition) | from the grade | S4 (in review, #17) |
 | `direct_schema_injection.instruction_phrase` *proposed* | Plain instructions | Scan instructions, not concealed, outside a prohibition | high for high-confidence matches, else medium | D3 |
-| `direct_schema_injection.suspicious_value` *proposed* | Injection in parameter schemas | Shell syntax, outside URLs or secret paths in `default`, `examples`, `enum` | medium | D3 |
+| `direct_schema_injection.suspicious_value` *proposed* | Injection in parameter schemas | Shell syntax or credential file paths in `default`, `examples`, `enum`, `const`; not URLs alone, which a base-URL parameter legitimately has | medium | D3 |
 | `direct_schema_injection.long_text` *proposed* | Plain instructions | Length of one text value | low, a hint only | D3 |
 | `direct_tool_name_spoofing.confusable_name` *proposed* | Name spoofing | Scan lookalikes, `RegistryView.tool_ids()` | high | D4 |
 | `direct_tool_name_spoofing.mixed_script` *proposed* | Name spoofing | Scan lookalikes | medium | D4 |
