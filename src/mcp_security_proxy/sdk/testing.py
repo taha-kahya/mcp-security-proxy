@@ -120,6 +120,9 @@ class FakeScan:
     async def secrets(self, value: Any) -> ScanResult:
         return self._result(Detector.SECRETS, value)
 
+    async def commands(self, value: Any) -> ScanResult:
+        return self._result(Detector.COMMANDS, value)
+
     def _result(self, detector: Detector, value: Any) -> ScanResult:
         self.scanned.append((detector, value))
         return ScanResult(tuple(m for m in self.matches if m.detector is detector), self.version)
