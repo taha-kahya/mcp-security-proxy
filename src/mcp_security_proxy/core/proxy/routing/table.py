@@ -71,6 +71,26 @@ class RoutingTable:
                 server_id, tool.name, name, tool, raw_tools[index] if raw_tools else None
             )
 
+    def replace_server_tools(
+        self,
+        server_id: str,
+        tools: list[types.Tool],
+        raw_tools: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Swap one server's tools for a fresh listing (re-discovery, T2).
+
+        Other servers' entries are untouched; a name that would collide with
+        one of them raises, and the table is left as it was.
+        """
+        kept = {n: r for n, r in self._by_external_name.items() if r.server_id != server_id}
+        previous = self._by_external_name
+        self._by_external_name = kept
+        try:
+            self.register_server_tools(server_id, tools, raw_tools)
+        except ValueError:
+            self._by_external_name = previous
+            raise
+
     def entries(self) -> list[RoutedTool]:
         return list(self._by_external_name.values())
 

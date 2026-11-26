@@ -1,0 +1,9 @@
+# Tool definitions that changed since they were first seen (plan MR T2):
+# gained capabilities (high), changed text (medium), only removals (low),
+# or an unclassified change (medium). The approved version is kept in the
+# state backend; forget it to re-approve:
+#   python -m mcp_security_proxy.app.approve_definitions --config <config> <server/tool>...
+# See src/mcp_security_proxy/defenses/temporal/definition_drift.
+id: temporal_definition_drift
+enabled: true
+settings: {}

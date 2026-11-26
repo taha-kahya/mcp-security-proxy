@@ -79,6 +79,7 @@ def make_event(
 class FakeRegistry:
     definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
     actions: dict[ToolId, Action] = field(default_factory=dict)
+    approved_definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
 
     def current(self, tool_id: ToolId) -> ToolDefinition | None:
         return self.definitions.get(tool_id)
@@ -89,6 +90,9 @@ class FakeRegistry:
     def tool_ids(self) -> list[ToolId]:
         """Tools with a definition or an action, in insertion order."""
         return list(dict.fromkeys([*self.definitions, *self.actions]))
+
+    def approved(self, tool_id: ToolId) -> ToolDefinition | None:
+        return self.approved_definitions.get(tool_id)
 
 
 @dataclass

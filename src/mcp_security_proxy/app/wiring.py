@@ -24,6 +24,11 @@ from pydantic.alias_generators import to_camel
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
 from mcp_security_proxy.app.integrity import check_servers
+from mcp_security_proxy.app.rediscovery import (
+    ToolRefresher,
+    UpstreamNotifications,
+    approve_current_definitions,
+)
 from mcp_security_proxy.app.security import (
     build_control,
     build_registry,
@@ -45,28 +50,37 @@ from mcp_security_proxy.core.runner import DefenseCatalog, EntryPointCatalog
 from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.log import AuditSink, InstructionsRecord, JsonlAuditSink
 from mcp_security_proxy.services.policy import PolicyError, PolicySnapshot
+from mcp_security_proxy.services.registry import DefinitionBaselines
 
 logger = logging.getLogger(__name__)
 
 
 class ProxyApp:
-    def __init__(self, server: Server, serve: Callable[[Server], Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        server: Server,
+        serve: Callable[[Server], Awaitable[None]],
+        refresher: ToolRefresher | None = None,
+    ) -> None:
         self.server = server
         self._serve = serve
+        # Re-discovery on `tools/list_changed` (T2); exposed for tests.
+        self.refresher = refresher
 
     async def serve(self) -> None:
         await self._serve(self.server)
 
 
 def _connect_upstream(
-    upstream: UpstreamServerConfig, command: str
+    upstream: UpstreamServerConfig, command: str, notifications: UpstreamNotifications
 ) -> AbstractAsyncContextManager[ClientSession]:
     """`command` is what to launch: for a pinned server, the file that was hashed."""
+    handler = notifications.handler(upstream.id)
     if upstream.transport == "stdio":
-        return connect_stdio_upstream(command, upstream.args)
+        return connect_stdio_upstream(command, upstream.args, handler)
     assert upstream.port is not None and upstream.url is not None  # enforced by config validation
     return spawn_streamable_http_upstream(
-        command, upstream.args, upstream.host, upstream.port, upstream.url
+        command, upstream.args, upstream.host, upstream.port, upstream.url, handler
     )
 
 
@@ -117,16 +131,23 @@ async def _discover_tools(
 ) -> RoutingTable:
     routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
-        if transparent:
-            # One fetch: the typed tool is built from the same JSON object the
-            # agent will receive and the defenses and Registry will see.
-            raw = await _raw_tool_definitions(session)
-            tools = [types.Tool.model_validate(definition) for definition in raw]
-            _share_tool_listing_with_session(session, tools)
-            routing_table.register_server_tools(server_id, tools, raw)
-        else:
-            routing_table.register_server_tools(server_id, (await session.list_tools()).tools)
+        tools, raw = await _list_server_tools(session, transparent=transparent)
+        routing_table.register_server_tools(server_id, tools, raw)
     return routing_table
+
+
+async def _list_server_tools(
+    session: ClientSession, *, transparent: bool
+) -> tuple[list[types.Tool], list[dict[str, Any]] | None]:
+    """One server's tools, at startup and on re-discovery (T2)."""
+    if transparent:
+        # One fetch: the typed tool is built from the same JSON object the
+        # agent will receive and the defenses and Registry will see.
+        raw = await _raw_tool_definitions(session)
+        tools = [types.Tool.model_validate(definition) for definition in raw]
+        _share_tool_listing_with_session(session, tools)
+        return tools, raw
+    return list((await session.list_tools()).tools), None
 
 
 def _upstream_identity(
@@ -218,15 +239,27 @@ async def build_app(
         history = History(state)
         await _recover_history(history)
 
+        notifications = UpstreamNotifications()
         sessions = {
             upstream.id: await stack.enter_async_context(
-                _connect_upstream(upstream, integrity[upstream.id].command)
+                _connect_upstream(upstream, integrity[upstream.id].command, notifications)
             )
             for upstream in config.servers
         }
         routing_table = await _discover_tools(sessions, transparent=config.transparent)
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
+        baselines = DefinitionBaselines(state)
+        await approve_current_definitions(registry, baselines)
+        refresher = ToolRefresher(
+            sessions,
+            routing_table,
+            registry,
+            baselines,
+            lambda session: _list_server_tools(session, transparent=config.transparent),
+        )
+        notifications.bind(refresher.schedule)
+        stack.push_async_callback(refresher.aclose)
 
         control = build_control(security, registry, history, state)
         orchestrator = ProxyOrchestrator(
@@ -255,4 +288,4 @@ async def build_app(
             instructions,
             verbatim_tools=config.transparent,
         )
-        yield ProxyApp(server, agent_facing.serve)
+        yield ProxyApp(server, agent_facing.serve, refresher)

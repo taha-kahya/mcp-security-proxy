@@ -23,6 +23,7 @@ direct_tool_name_spoofing = "mcp_security_proxy.defenses.direct.tool_name_spoofi
 indirect_argument_propagation = "mcp_security_proxy.defenses.indirect.argument_propagation:create"
 indirect_result_injection = "mcp_security_proxy.defenses.indirect.result_injection:create"
 temporal_call_rate = "mcp_security_proxy.defenses.temporal.call_rate:create"
+temporal_definition_drift = "mcp_security_proxy.defenses.temporal.definition_drift:create"
 
 [dependency-groups]
 dev = [
