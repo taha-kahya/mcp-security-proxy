@@ -78,3 +78,12 @@ def test_invalid_semantics_are_rejected(document: object) -> None:
 def test_missing_file_is_reported(tmp_path: Path) -> None:
     with pytest.raises(ToolSemanticsError):
         load_tool_semantics(tmp_path / "missing.yaml")
+
+
+def test_tool_ids_lists_every_registered_tool_once_in_registration_order() -> None:
+    """`RegistryView.tool_ids()` (SDK 1.2), as defenses see it."""
+    registry = Registry(ConfiguredToolAdapter.empty())
+    registry.register(WRITE, DEFINITION)
+    registry.register(READ, DEFINITION | {"name": "read_record"})
+    registry.register(WRITE, DEFINITION | {"description": "Changed."})
+    assert list(registry.tool_ids()) == [WRITE, READ]

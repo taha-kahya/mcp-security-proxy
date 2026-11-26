@@ -140,3 +140,12 @@ class ScanView(Protocol):
     async def lookalikes(self, value: Any) -> ScanResult: ...
 
     async def secrets(self, value: Any) -> ScanResult: ...
+
+    async def skeleton(self, text: str) -> str:
+        """The UTS #39 confusable skeleton of `text` (SDK 1.2).
+
+        Two strings that look alike, such as `send_message` and `send_mеssage`
+        with a Cyrillic "е", have the same skeleton. Compare skeletons rather
+        than mapping lookalike letters in a defense.
+        """
+        ...

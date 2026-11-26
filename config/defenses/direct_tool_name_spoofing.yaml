@@ -1,0 +1,7 @@
+# Tool names that look identical to another tool's, names that mix
+# alphabets with lookalike letters, and definitions that refer to another
+# server's tool (plan MR D4).
+# See src/mcp_security_proxy/defenses/direct/tool_name_spoofing.
+id: direct_tool_name_spoofing
+enabled: true
+settings: {}

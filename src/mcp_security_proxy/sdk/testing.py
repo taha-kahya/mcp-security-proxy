@@ -86,6 +86,10 @@ class FakeRegistry:
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action:
         return self.actions.get(tool_id, Action.unknown(TEST_ADAPTER, "1"))
 
+    def tool_ids(self) -> list[ToolId]:
+        """Tools with a definition or an action, in insertion order."""
+        return list(dict.fromkeys([*self.definitions, *self.actions]))
+
 
 @dataclass
 class FakePolicy:
@@ -106,6 +110,8 @@ class FakeScan:
 
     matches: tuple[ScanMatch, ...] = ()
     version: str = "fake-scan"
+    # text -> skeleton; text not listed is its own skeleton.
+    skeletons: dict[str, str] = field(default_factory=dict)
     scanned: list[tuple[Detector, Any]] = field(default_factory=list)
 
     async def hidden(self, value: Any) -> ScanResult:
@@ -119,6 +125,9 @@ class FakeScan:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._result(Detector.SECRETS, value)
+
+    async def skeleton(self, text: str) -> str:
+        return self.skeletons.get(text, text)
 
     def _result(self, detector: Detector, value: Any) -> ScanResult:
         self.scanned.append((detector, value))

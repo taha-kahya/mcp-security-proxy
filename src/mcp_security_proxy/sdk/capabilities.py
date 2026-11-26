@@ -8,7 +8,7 @@ principal and task.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -37,6 +37,14 @@ class RegistryView(Protocol):
     def current(self, tool_id: ToolId) -> ToolDefinition | None: ...
 
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action: ...
+
+    def tool_ids(self) -> Sequence[ToolId]:
+        """Every discovered tool, from every server, in discovery order (SDK 1.2).
+
+        Includes tools the current principal's policy hides, so a defense can
+        compare a definition with everything the proxy knows about.
+        """
+        ...
 
 
 class PolicyView(Protocol):

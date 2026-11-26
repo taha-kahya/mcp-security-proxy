@@ -80,6 +80,11 @@ class RuleScanner:
     async def secrets(self, value: Any) -> ScanResult:
         return self._scan(Detector.SECRETS, value)
 
+    async def skeleton(self, text: str) -> str:
+        if len(text) > self._max_chars:
+            raise ScanLimitError(f"{len(text)} characters; the limit is {self._max_chars}")
+        return self._unicode.skeleton(text)
+
     def _scan(self, detector: Detector, value: Any) -> ScanResult:
         leaves = list(text_leaves(value))
         size = sum(len(leaf.text) for leaf in leaves)
