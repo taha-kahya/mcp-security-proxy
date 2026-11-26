@@ -80,6 +80,8 @@ class DiscoveryRecord(AuditRecord):
     policy_version: str
     visible_tool_count: int
     hidden_by_inspection: tuple[str, ...] = ()
+    # Visible with flagged fields replaced by a proxy notice (D5).
+    redacted: tuple[str, ...] = ()
 
 
 class DecisionRecord(AuditRecord):

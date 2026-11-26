@@ -2,7 +2,7 @@
 
 Guard neither inspects content nor calls servers. It maps every input to a
 verdict and takes the strictest: `block` beats `require_approval`, which
-beats `allow`. A defense that reports nothing therefore cannot cancel
+beats `redact`, which beats `allow`. A defense that reports nothing therefore cannot cancel
 another defense's finding, and no finding can loosen what policy denies.
 """
 
@@ -26,13 +26,19 @@ class Guard:
         policy: PrincipalPolicy,
         reports: Sequence[InspectionReport] = (),
     ) -> Decision:
-        """A tool call: the policy rule for the tool, then every inspection."""
+        """A tool call: the policy rule for the tool, then every inspection.
+
+        A call can't be redacted: a `redact` verdict on the tool's definition
+        means its calls need approval (ADR 0016), which blocks until V5.
+        """
         verdict = policy_verdict(tool_id, policy)
-        return _combine([verdict, *inspection_verdicts(reports, policy.enforcement)], policy)
+        inspections = [_for_calls(v) for v in inspection_verdicts(reports, policy.enforcement)]
+        return _combine([verdict, *inspections], policy)
 
     def review(self, policy: PrincipalPolicy, reports: Sequence[InspectionReport]) -> Decision:
         """Content with no policy rule of its own (a tool definition or a call
-        result): only inspections can object."""
+        result): only inspections can object. A `redact` decision lists the
+        evidence references to redact."""
         return _combine(inspection_verdicts(reports, policy.enforcement), policy)
 
 
@@ -48,4 +54,17 @@ def _combine(verdicts: Iterable[Verdict], policy: PrincipalPolicy) -> Decision:
         rule_refs=tuple(verdict.rule_ref for verdict in deciding),
         reason=deciding[0].reason,
         policy_version=policy.policy_version,
+        redactions=tuple(sorted({ref for v in deciding for ref in v.redactions})),
     )
+
+
+_REDACTED_CALL_REASON = (
+    "this tool's definition was redacted by a security check; calls require approval, "
+    "and no approval mechanism is available"
+)
+
+
+def _for_calls(verdict: Verdict) -> Verdict:
+    if verdict.outcome is not Outcome.REDACT:
+        return verdict
+    return Verdict(Outcome.REQUIRE_APPROVAL, verdict.rule_ref, _REDACTED_CALL_REASON)

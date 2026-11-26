@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from mcp import types
@@ -23,6 +23,7 @@ from mcp_security_proxy.core.guard import Decision, Guard, Outcome
 from mcp_security_proxy.core.identity import TaskResolver
 from mcp_security_proxy.core.proxy.events import delivery_event, discovery_event, execution_event
 from mcp_security_proxy.core.proxy.locks import TaskLocks
+from mcp_security_proxy.core.proxy.redaction import redact
 from mcp_security_proxy.core.proxy.routing.table import RoutedTool
 from mcp_security_proxy.core.runner import InspectionReport, InspectionScope, Runner
 from mcp_security_proxy.sdk import (
@@ -41,12 +42,16 @@ from mcp_security_proxy.services.policy import PolicySnapshot, PrincipalPolicy
 from mcp_security_proxy.services.registry import Registry
 from mcp_security_proxy.services.state import DefenseStateStore, StateUnavailableError, TaskRef
 
+_EXPOSED = frozenset({Outcome.ALLOW, Outcome.REDACT})
+
 
 @dataclass(frozen=True)
 class Discovery:
     visible: tuple[RoutedTool, ...]
     hidden_by_inspection: tuple[RoutedTool, ...]
     policy_version: str
+    # external name -> the definition to expose, flagged fields replaced (D5)
+    redacted: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -121,13 +126,20 @@ class ProxyControl:
         policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
         visible: list[RoutedTool] = []
         hidden: list[RoutedTool] = []
+        redacted: dict[str, Mapping[str, Any]] = {}
         for routed in tools:
             if not policy.can_discover(routed.tool_id):
                 continue
             reports = await self._inspect_definition(principal, task, policy, routed)
             review = self._guard.review(policy, reports)
-            (visible if review.outcome is Outcome.ALLOW else hidden).append(routed)
-        return Discovery(tuple(visible), tuple(hidden), policy.policy_version)
+            if review.outcome is Outcome.REDACT:
+                exposed = redact(self._definition(routed).definition, review.redactions)
+                if exposed is None:
+                    hidden.append(routed)
+                    continue
+                redacted[routed.external_name] = exposed
+            (visible if review.outcome in _EXPOSED else hidden).append(routed)
+        return Discovery(tuple(visible), tuple(hidden), policy.policy_version, redacted)
 
     async def authorize_call(
         self,
@@ -155,9 +167,15 @@ class ProxyControl:
         # The same definition check that hides a tool from discovery also
         # applies to calls, so a hidden tool cannot be called by name.
         definition_reports = await self._inspect_definition(principal, task, policy, routed)
-        if self._guard.review(policy, definition_reports).outcome is not Outcome.ALLOW:
+        review = self._guard.review(policy, definition_reports)
+        if review.outcome is not Outcome.ALLOW:
             decision = self._guard.decide(routed.tool_id, policy, definition_reports)
-            return authorization(decision, definition_reports)
+            # A redacted tool is visible, so its denial may say so.
+            visible = (
+                review.outcome is Outcome.REDACT
+                and redact(self._definition(routed).definition, review.redactions) is not None
+            )
+            return authorization(decision, definition_reports, hidden=not visible)
 
         action = self._registry.action(routed.tool_id, arguments)
         event = execution_event(correlation_id, routed.tool_id, arguments, action)

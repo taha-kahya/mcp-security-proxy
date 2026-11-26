@@ -23,7 +23,7 @@ from mcp_security_proxy.services.policy import (
 UNKNOWN_TOOL_RULE = "routing:unknown_tool"
 DEFAULT_DENY_RULE = "policy:default_deny"
 
-_STRICTNESS = {Outcome.ALLOW: 0, Outcome.REQUIRE_APPROVAL: 1, Outcome.BLOCK: 2}
+_STRICTNESS = {Outcome.ALLOW: 0, Outcome.REDACT: 1, Outcome.REQUIRE_APPROVAL: 2, Outcome.BLOCK: 3}
 
 _OUTCOME_BY_EFFECT = {
     Effect.ALLOW: Outcome.ALLOW,
@@ -31,6 +31,7 @@ _OUTCOME_BY_EFFECT = {
 }
 _OUTCOME_BY_ENFORCEMENT = {
     Enforcement.ALLOW: Outcome.ALLOW,
+    Enforcement.REDACT: Outcome.REDACT,
     Enforcement.REQUIRE_APPROVAL: Outcome.REQUIRE_APPROVAL,
     Enforcement.BLOCK: Outcome.BLOCK,
 }
@@ -41,12 +42,14 @@ _POLICY_REASONS = {
 }
 _FINDING_REASONS = {
     Outcome.ALLOW: "finding recorded",
+    Outcome.REDACT: "flagged content withheld by a security check",
     Outcome.REQUIRE_APPROVAL: "a security check requires approval, and no approval "
     "mechanism is available",
     Outcome.BLOCK: "blocked by a security check",
 }
 _INCOMPLETE_REASONS = {
     Outcome.ALLOW: "security check incomplete, allowed by policy",
+    Outcome.REDACT: "a security check could not complete; content exposed for approval only",
     Outcome.REQUIRE_APPROVAL: "a security check could not complete and approval is unavailable",
     Outcome.BLOCK: "a security check could not complete",
 }
@@ -57,6 +60,8 @@ class Verdict:
     outcome: Outcome
     rule_ref: str
     reason: str
+    # Evidence references to redact, for a `redact` verdict on a finding.
+    redactions: tuple[str, ...] = ()
 
     @property
     def strictness(self) -> int:
@@ -86,4 +91,5 @@ def inspection_verdicts(
         for finding in report.result.findings:
             outcome = _OUTCOME_BY_ENFORCEMENT[rules.for_finding(finding)]
             rule_ref = f"defense:{report.defense_id}:{finding.rule_id}"
-            yield Verdict(outcome, rule_ref, _FINDING_REASONS[outcome])
+            redactions = finding.evidence_refs if outcome is Outcome.REDACT else ()
+            yield Verdict(outcome, rule_ref, _FINDING_REASONS[outcome], redactions)
