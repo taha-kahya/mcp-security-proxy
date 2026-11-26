@@ -84,6 +84,15 @@ class DiscoveryRecord(AuditRecord):
     redacted: tuple[str, ...] = ()
 
 
+class InstructionsRecord(AuditRecord):
+    """Whether a server's `initialize` instructions were forwarded (I4)."""
+
+    kind: Literal["instructions"] = "instructions"
+    server_id: str
+    forwarded: bool
+    inspections: tuple[InspectionSummary, ...] = ()
+
+
 class DecisionRecord(AuditRecord):
     kind: Literal["decision"] = "decision"
     correlation_id: str

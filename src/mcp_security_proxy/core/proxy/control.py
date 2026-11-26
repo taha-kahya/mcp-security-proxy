@@ -28,6 +28,7 @@ from mcp_security_proxy.core.proxy.events import (
     execution_event,
     progress_event,
 )
+from mcp_security_proxy.core.proxy.instructions import STARTUP_PRINCIPAL, instructions_event
 from mcp_security_proxy.core.proxy.locks import TaskLocks
 from mcp_security_proxy.core.proxy.redaction import redact
 from mcp_security_proxy.core.proxy.routing.table import RoutedTool
@@ -259,6 +260,27 @@ class ProxyControl:
         if definition is None:
             raise LookupError(f"routed tool {routed.tool_id} was never registered")
         return definition
+
+    async def inspect_instructions(self, server_id: str, text: str) -> tuple[InspectionReport, ...]:
+        """A server's `initialize` instructions, inspected once at startup (I4).
+
+        They reach every agent, so they are inspected as the proxy's own
+        startup principal rather than any agent's.
+        """
+        if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
+            return ()
+        principal = STARTUP_PRINCIPAL
+        policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
+        scope = InspectionScope(
+            principal=principal,
+            task=task,
+            policy=policy,
+            registry=self._registry,
+            history=await self._history.snapshot(task),
+        )
+        reports = await self._runner.inspect(instructions_event(server_id, text), scope)
+        await self._commit(task, reports)
+        return reports
 
     async def _inspect_definition(
         self, principal: Principal, task: TaskRef, policy: PrincipalPolicy, routed: RoutedTool

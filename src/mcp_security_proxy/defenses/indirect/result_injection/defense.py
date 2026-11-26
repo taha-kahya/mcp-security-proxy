@@ -21,6 +21,10 @@ So are an upstream's JSON-RPC error for the call (`/error/message`,
 Any other block (image, audio, embedded resource, resource link) can't be
 inspected, so the whole result is `unsupported`, never clean.
 
+A server's `initialize` instructions are inspected the same way at startup,
+pointing at `/instructions` (plan MR I4); the proxy forwards them only when
+no defense found anything.
+
 Does not cover: reworded injections with no hiding (needs Scan's classifier
 stage), log notifications (`notifications/message`, which the proxy doesn't
 relay), or injected text in call arguments (I2).
@@ -38,6 +42,7 @@ from mcp_security_proxy.sdk import (
     NOTIFICATION_CONTENT_TYPE,
     Capability,
     ContentBlock,
+    ContentSource,
     Context,
     Event,
     Finding,
@@ -109,6 +114,9 @@ def _inspected_value(index: int, block: ContentBlock) -> tuple[str, Any]:
         return "/error", block.data
     if block.type == NOTIFICATION_CONTENT_TYPE:
         return "/params", block.data
+
+    if block.provenance.source is ContentSource.SERVER_INSTRUCTIONS:
+        return "/instructions", block.data.get("text", "")
     return f"/content/{index}/text", block.data.get("text", "")
 
 

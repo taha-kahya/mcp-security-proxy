@@ -38,6 +38,8 @@ class ContentSource(StrEnum):
     # SDK 1.2: an upstream's JSON-RPC error for a call, and its notifications
     TOOL_ERROR = "tool_error"
     NOTIFICATION = "notification"
+    # SDK 1.2: a server's `initialize` instructions
+    SERVER_INSTRUCTIONS = "server_instructions"
 
 
 # Block types for content that isn't a result block (SDK 1.2). An `error` block's

@@ -30,6 +30,9 @@ from mcp_security_proxy.app.security import (
     load_security,
     open_state,
 )
+from mcp_security_proxy.core.proxy.audit import inspection_summaries
+from mcp_security_proxy.core.proxy.control import ProxyControl
+from mcp_security_proxy.core.proxy.instructions import STARTUP_PRINCIPAL, compose, releasable
 from mcp_security_proxy.core.proxy.orchestrator import ProxyOrchestrator
 from mcp_security_proxy.core.proxy.routing.correlation import CorrelationTracker
 from mcp_security_proxy.core.proxy.routing.table import RoutingTable
@@ -40,7 +43,7 @@ from mcp_security_proxy.core.proxy.transport.streamable_http_client import (
 )
 from mcp_security_proxy.core.runner import DefenseCatalog, EntryPointCatalog
 from mcp_security_proxy.services.history import History
-from mcp_security_proxy.services.log import JsonlAuditSink
+from mcp_security_proxy.services.log import AuditSink, InstructionsRecord, JsonlAuditSink
 from mcp_security_proxy.services.policy import PolicyError, PolicySnapshot
 
 logger = logging.getLogger(__name__)
@@ -135,6 +138,36 @@ def _upstream_identity(
     return session.server_info, session.instructions
 
 
+async def _inspected_instructions(
+    sessions: Mapping[str, ClientSession], control: ProxyControl, audit: AuditSink
+) -> str | None:
+    """Each upstream's instructions that inspection released, in the proxy's
+    own block (I4); the rest are withheld and logged."""
+    forwarded: dict[str, str] = {}
+    for server_id, session in sessions.items():
+        text = session.instructions
+        if not text:
+            continue
+        reports = await control.inspect_instructions(server_id, text)
+        released = releasable(reports)
+        await audit.write(
+            InstructionsRecord(
+                principal_id=STARTUP_PRINCIPAL.id,
+                authenticated_by=STARTUP_PRINCIPAL.authenticated_by,
+                server_id=server_id,
+                forwarded=released,
+                inspections=inspection_summaries(reports),
+            )
+        )
+        if released:
+            forwarded[server_id] = text
+        else:
+            logger.warning(
+                "withholding %r's instructions: inspection did not release them", server_id
+            )
+    return compose(forwarded)
+
+
 def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
     unmatched = policy.unmatched_patterns(routed.tool_id for routed in routing_table.entries())
     if unmatched:
@@ -195,19 +228,22 @@ async def build_app(
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
 
+        control = build_control(security, registry, history, state)
         orchestrator = ProxyOrchestrator(
             routing=routing_table,
             upstreams=sessions,
-            control=build_control(security, registry, history, state),
+            control=control,
             audit=audit,
             correlation=CorrelationTracker(),
             forward_meta=config.transparent,
             unmasked_meta_keys=config.audit_meta_allowlist,
         )
         server_info, instructions = (
-            _upstream_identity(sessions) if config.transparent else (None, None)
+            _upstream_identity(sessions)
+            if config.transparent
+            else (None, await _inspected_instructions(sessions, control, audit))
         )
-        if instructions:
+        if instructions and config.transparent:
             logger.warning(
                 "transparent mode forwards the upstream's server instructions unchanged "
                 "(ADR 0023 decision 4); they are not inspected"
