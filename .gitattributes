@@ -1,0 +1,4 @@
+# Vendored Unicode data is pinned by SHA-256
+# (tests/contracts/test_scan_unicode_data.py), so it must be checked out
+# byte for byte, without line-ending conversion on Windows.
+src/mcp_security_proxy/services/scan/data/** -text
