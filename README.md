@@ -131,6 +131,14 @@ Both reference configs use the policy in
 requiring approval, and `server_b__slow_write` hidden. The proxy writes its
 audit log to `proxy_audit.jsonl` in the working directory.
 
+## Pinning server files
+
+A server entry can pin the file its `command` launches with `sha256:
+<64 lowercase hex>`. At startup the proxy hashes that file (the path given,
+or the first match on `PATH`), refuses to start if it differs, and launches
+the file it hashed. For `python -m ...` or `npx ...` the pin covers only the
+interpreter or runner, so pin the package version as well.
+
 ## Changing policy
 
 Edit the policy file (or point `policy_path` at another one) and restart the
