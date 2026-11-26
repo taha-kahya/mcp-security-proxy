@@ -30,7 +30,9 @@ Control (V2):
   which stays blocked until Approval exists in V5).
 - **Log:** every decision and upstream outcome is appended to a JSONL audit
   log with arguments masked. If a decision can't be recorded, the call is not
-  dispatched.
+  dispatched. Each record carries the hash of the one before it, so an edit,
+  insertion or deletion is detected by
+  `uv run python -m mcp_security_proxy.app.verify_audit proxy_audit.jsonl`.
 
 SDK and Runner (V3):
 
