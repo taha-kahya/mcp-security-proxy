@@ -1,0 +1,6 @@
+# Tool annotations (read-only, non-destructive, closed-world) that contradict
+# the operation the operator assigns in tools.yaml (plan MR D1).
+# See src/mcp_security_proxy/defenses/direct/claim_mismatch.
+id: direct_claim_mismatch
+enabled: true
+settings: {}
