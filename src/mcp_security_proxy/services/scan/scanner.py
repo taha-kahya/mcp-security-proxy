@@ -25,6 +25,7 @@ from mcp_security_proxy.sdk import (
 )
 from mcp_security_proxy.services.scan.cache import LruCache
 from mcp_security_proxy.services.scan.rules import (
+    CommandsRule,
     Evidence,
     HiddenContentRule,
     InstructionsRule,
@@ -37,7 +38,7 @@ from mcp_security_proxy.services.scan.unicode_data import UnicodeData, unicode_d
 from mcp_security_proxy.services.scan.views import Located, TextViews
 from mcp_security_proxy.services.scan.walk import TextLeaf, text_leaves
 
-RULES_VERSION = "1"
+RULES_VERSION = "2"
 DEFAULT_MAX_CHARS = 1_000_000
 DEFAULT_CACHE_ENTRIES = 1024
 
@@ -65,6 +66,7 @@ class RuleScanner:
             Detector.INSTRUCTIONS: InstructionsRule(),
             Detector.LOOKALIKES: LookalikesRule(data),
             Detector.SECRETS: SecretsRule(),
+            Detector.COMMANDS: CommandsRule(),
         }
         self.version = f"rules-{RULES_VERSION}+unicode-{data.version}"
 
@@ -84,6 +86,9 @@ class RuleScanner:
         if len(text) > self._max_chars:
             raise ScanLimitError(f"{len(text)} characters; the limit is {self._max_chars}")
         return self._unicode.skeleton(text)
+
+    async def commands(self, value: Any) -> ScanResult:
+        return self._scan(Detector.COMMANDS, value)
 
     def _scan(self, detector: Detector, value: Any) -> ScanResult:
         leaves = list(text_leaves(value))

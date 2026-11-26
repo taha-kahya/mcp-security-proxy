@@ -129,6 +129,9 @@ class FakeScan:
     async def skeleton(self, text: str) -> str:
         return self.skeletons.get(text, text)
 
+    async def commands(self, value: Any) -> ScanResult:
+        return self._result(Detector.COMMANDS, value)
+
     def _result(self, detector: Detector, value: Any) -> ScanResult:
         self.scanned.append((detector, value))
         return ScanResult(tuple(m for m in self.matches if m.detector is detector), self.version)

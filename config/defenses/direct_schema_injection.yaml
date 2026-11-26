@@ -1,0 +1,7 @@
+# Plain instructions to the model anywhere in a tool definition, shell
+# commands or credential paths in schema values, and unusually long text
+# (plan MR D3). See src/mcp_security_proxy/defenses/direct/schema_injection.
+id: direct_schema_injection
+enabled: true
+settings:
+  max_text_length: 2000

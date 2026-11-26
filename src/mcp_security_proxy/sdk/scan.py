@@ -38,6 +38,7 @@ class Detector(StrEnum):
     INSTRUCTIONS = "instructions"
     LOOKALIKES = "lookalikes"
     SECRETS = "secrets"
+    COMMANDS = "commands"
 
 
 class MatchKind(StrEnum):
@@ -60,6 +61,9 @@ class MatchKind(StrEnum):
     MIXED_SCRIPT_CONFUSABLE = "mixed_script_confusable"
     # secrets; `ScanMatch.label` names the format
     SECRET = "secret"
+    # commands (SDK 1.2): values a model would run, or files it would read
+    SHELL_COMMAND = "shell_command"
+    CREDENTIAL_PATH = "credential_path"
 
 
 class Decoding(StrEnum):
@@ -148,4 +152,8 @@ class ScanView(Protocol):
         with a Cyrillic "е", have the same skeleton. Compare skeletons rather
         than mapping lookalike letters in a defense.
         """
+        ...
+
+    async def commands(self, value: Any) -> ScanResult:
+        """Shell command syntax and credential file paths (SDK 1.2)."""
         ...
