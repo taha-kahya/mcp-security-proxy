@@ -119,6 +119,20 @@ changes to the same key fail the inspection.
 `my_check.too_many`. A finding with any other rule id fails the inspection,
 so one defense can't receive another's enforcement.
 
+**Destinations.** To judge where a URL or host points, call
+`classify_destination(value)` rather than matching it yourself. It needs no
+capability and does no I/O. It sees through disguised addresses
+(`http://2852039166/` is the metadata endpoint) and labels a plain hostname
+`name`, not `external`, since it can't resolve it:
+
+```python
+from mcp_security_proxy.sdk import DestinationKind, classify_destination
+
+destination = classify_destination(url)
+if destination.kind is DestinationKind.METADATA:
+    ...  # finding with evidence_refs=("/arguments/url",)
+```
+
 ## 2. Test it without the proxy
 
 `mcp_security_proxy.sdk.testing` builds events and contexts with fake
