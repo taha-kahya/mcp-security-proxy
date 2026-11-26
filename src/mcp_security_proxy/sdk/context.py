@@ -19,6 +19,7 @@ from mcp_security_proxy.sdk.capabilities import (
 )
 from mcp_security_proxy.sdk.manifest import Capability
 from mcp_security_proxy.sdk.results import Signal
+from mcp_security_proxy.sdk.scan import ScanView
 from mcp_security_proxy.sdk.types import Principal
 
 _T = TypeVar("_T")
@@ -36,6 +37,7 @@ class Grants:
     history: HistorySnapshot | None = None
     policy: PolicyView | None = None
     private_state: PrivateState | None = None
+    scan: ScanView | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,10 @@ class Context:
     @property
     def private_state(self) -> PrivateState:
         return _granted(self.grants.private_state, Capability.PRIVATE_STATE)
+
+    @property
+    def scan(self) -> ScanView:
+        return _granted(self.grants.scan, Capability.SCAN)
 
     def signals_of(self, signal_type: str) -> tuple[Signal, ...]:
         return tuple(signal for signal in self.signals if signal.type == signal_type)

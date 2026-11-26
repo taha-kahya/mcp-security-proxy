@@ -18,6 +18,7 @@ class Capability(StrEnum):
     HISTORY = "history"
     POLICY = "policy"
     PRIVATE_STATE = "private_state"
+    SCAN = "scan"
 
 
 @dataclass(frozen=True)
