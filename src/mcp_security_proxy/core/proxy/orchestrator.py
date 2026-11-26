@@ -31,6 +31,7 @@ from mcp_security_proxy.core.proxy.codec.jsonrpc import (
     ensure_call_tool_result,
     state_unavailable_error,
     unknown_tool_error,
+    withheld_error,
     withheld_result,
 )
 from mcp_security_proxy.core.proxy.control import CallAuthorization, ProxyControl
@@ -130,7 +131,11 @@ class ProxyOrchestrator:
                     return self._deny(external_name, authorization)
                 operation = await self._control.reserve(authorization)
 
-        result = await self._dispatch(authorization, operation, arguments, meta, progress_callback)
+        relay = self._inspected_progress(authorization, progress_callback)
+        try:
+            result = await self._dispatch(authorization, operation, arguments, meta, relay)
+        except MCPError as exc:
+            raise await self._deliver_error(authorization, exc) from None
         return await self._deliver(authorization, result)
 
     @staticmethod
@@ -215,6 +220,48 @@ class ProxyOrchestrator:
         if not review.releases_result:
             return withheld_result(review.decision.reason, review.decision.decision_id)
         return result
+
+    async def _deliver_error(self, authorization: CallAuthorization, exc: MCPError) -> MCPError:
+        """The error to raise for an upstream error: the upstream's own if
+        inspection releases it, otherwise one that keeps its code but not its
+        text (I3). Withholding it does not undo the call."""
+        with _state_required():
+            async with self._control.serialized(authorization.principal):
+                review = await self._control.review_error(authorization, exc.error)
+        if review.inspected:
+            await self._record_or_refuse(delivery_record(authorization, review))
+        if review.releases_result:
+            return exc
+        return withheld_error(exc.error.code, review.decision.reason, review.decision.decision_id)
+
+    def _inspected_progress(
+        self, authorization: CallAuthorization, progress_callback: ProgressFnT | None
+    ) -> ProgressFnT | None:
+        """Relays each progress update; its message only if inspection releases
+        it (I3). The numbers carry no text, so they are always relayed; a
+        message whose inspection or audit record fails is dropped, never
+        relayed uninspected."""
+        if progress_callback is None:
+            return None
+
+        async def relay(progress: float, total: float | None, message: str | None) -> None:
+            if message:
+                try:
+                    async with self._control.serialized(authorization.principal):
+                        review = await self._control.review_progress(
+                            authorization, progress, total, message
+                        )
+                    if review.inspected:
+                        await self._audit.write(delivery_record(authorization, review))
+                    released = review.releases_result
+                except Exception:
+                    logger.exception("dropping a progress message that couldn't be inspected")
+                    released = False
+                if not released:
+                    message = None
+            await progress_callback(progress, total, message)
+
+        return relay
 
     async def _record_or_refuse(self, record: AuditRecord) -> None:
         """Fail closed: nothing proceeds unless its record was written (0013)."""
