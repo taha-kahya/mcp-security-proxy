@@ -39,21 +39,27 @@ def iter_strings(value: Any, pointer: str = "") -> Iterator[tuple[str, str]]:
             yield from iter_strings(item, child(pointer, index))
 
 
+_NAME_MAPS = ("properties", "patternProperties")
+
+
 def iter_keyword_values(
-    value: Any, keywords: Collection[str], pointer: str = "", _parent: str | None = None
+    value: Any, keywords: Collection[str], pointer: str = "", _names: bool = False
 ) -> Iterator[tuple[str, Any]]:
     """The value of every JSON Schema keyword in `keywords`, at any depth.
 
     Keys directly under `properties` (or `patternProperties`) are property
     names, so a parameter called `default` is a schema to walk, not a value.
+    A parameter called `properties` is likewise a schema: its own keys are
+    keywords again, not property names.
     """
     if isinstance(value, Mapping):
         for key, item in value.items():
             location = child(pointer, key)
-            if key in keywords and _parent not in ("properties", "patternProperties"):
+            if key in keywords and not _names:
                 yield location, item
             else:
-                yield from iter_keyword_values(item, keywords, location, str(key))
+                names = not _names and key in _NAME_MAPS
+                yield from iter_keyword_values(item, keywords, location, names)
     elif is_array(value):
         for index, item in enumerate(value):
             yield from iter_keyword_values(item, keywords, child(pointer, index))
