@@ -27,7 +27,8 @@ import anyio
 from mcp import ClientSession, types
 from mcp.client.session import MessageHandlerFnT
 
-from mcp_security_proxy.core.proxy.routing.table import RoutedTool, RoutingTable
+from mcp_security_proxy.core.proxy.routing.table import RoutingTable
+from mcp_security_proxy.sdk import ToolDefinition, ToolId, canonical_digest, thaw
 from mcp_security_proxy.services.registry import DefinitionBaselines, Registry
 
 logger = logging.getLogger(__name__)
@@ -40,12 +41,26 @@ ToolLister = Callable[
 ]
 
 
-def definition_of(routed: RoutedTool) -> Mapping[str, Any]:
-    """What defenses and the version digest see: the raw object when kept
-    (transparent mode), otherwise the typed tool's JSON."""
-    if routed.raw is not None:
-        return routed.raw
-    return routed.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+def canonical_form(transparent: bool) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+    """The one form approved definitions are stored and compared in.
+
+    Transparent mode inspects the upstream's raw JSON, so that is kept as is.
+    Otherwise a definition is round-tripped through the current SDK's tool
+    model, which is how the proxy builds the definitions it inspects, so a
+    baseline stored by an older SDK, or in transparent mode, compares equal
+    to an unchanged tool.
+    """
+    if transparent:
+        return thaw
+
+    def typed(definition: Mapping[str, Any]) -> Mapping[str, Any]:
+        try:
+            tool = types.Tool.model_validate(thaw(definition))
+        except ValueError:
+            return thaw(definition)
+        return tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    return typed
 
 
 def _method(message: object) -> str | None:
@@ -100,23 +115,34 @@ class ToolRefresher:
         task.add_done_callback(self._tasks.discard)
 
     async def refresh(self, server_id: str) -> None:
+        """Everything that awaits (listing, building entries, approving new
+        tools) happens first; the routing table and the Registry then change
+        together with no await in between, so discovery and calls see the old
+        listing or the new one, never a mix."""
         async with self._lock:
             try:
                 tools, raw = await self._list_tools(self._sessions[server_id])
-                self._routing.replace_server_tools(server_id, tools, raw)
+                entries = self._routing.entries_for(server_id, tools, raw)
             except Exception:
                 logger.exception("re-discovery of %r failed; keeping its previous tools", server_id)
                 return
-            listed = [r for r in self._routing.entries() if r.server_id == server_id]
-            for gone in {t for t in self._registry.tool_ids() if t.server_id == server_id} - {
-                r.tool_id for r in listed
-            }:
-                self._registry.unregister(gone)
-            for routed in listed:
-                current = self._registry.register(routed.tool_id, definition_of(routed))
+            approvals: dict[ToolId, ToolDefinition] = {}
+            for routed in entries:
                 if self._registry.approved(routed.tool_id) is None:
-                    self._registry.set_approved(await self._baselines.approve_if_new(current))
-            logger.info("re-discovered %d tools from %r", len(listed), server_id)
+                    body = routed.definition()
+                    candidate = ToolDefinition(routed.tool_id, canonical_digest(body), body)
+                    approvals[routed.tool_id] = await self._baselines.approve_if_new(candidate)
+
+            listed = {routed.tool_id for routed in entries}
+            gone = {t for t in self._registry.tool_ids() if t.server_id == server_id} - listed
+            self._routing.replace_server_entries(server_id, entries)
+            for tool_id in gone:
+                self._registry.unregister(tool_id)
+            for routed in entries:
+                self._registry.register(routed.tool_id, routed.definition())
+            for approved in approvals.values():
+                self._registry.set_approved(approved)
+            logger.info("re-discovered %d tools from %r", len(entries), server_id)
 
     async def wait_idle(self) -> None:
         """Wait for scheduled refreshes; for tests and shutdown."""

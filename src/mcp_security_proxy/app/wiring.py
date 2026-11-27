@@ -28,6 +28,7 @@ from mcp_security_proxy.app.rediscovery import (
     ToolRefresher,
     UpstreamNotifications,
     approve_current_definitions,
+    canonical_form,
 )
 from mcp_security_proxy.app.security import (
     build_control,
@@ -249,7 +250,7 @@ async def build_app(
         routing_table = await _discover_tools(sessions, transparent=config.transparent)
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
-        baselines = DefinitionBaselines(state)
+        baselines = DefinitionBaselines(state, canonical_form(config.transparent))
         await approve_current_definitions(registry, baselines)
         refresher = ToolRefresher(
             sessions,

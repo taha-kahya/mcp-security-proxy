@@ -40,6 +40,15 @@ class RoutedTool:
         """The upstream definition as advertised to the agent."""
         return self.tool.model_copy(update={"name": self.external_name})
 
+    def definition(self) -> Mapping[str, Any]:
+        """What defenses, the version digest and the approved baseline see: the
+        upstream's raw JSON when captured (transparent mode), otherwise the
+        typed tool's JSON. Startup and re-discovery both use this, so they
+        can't disagree and fake a drift."""
+        if self.raw is not None:
+            return self.raw
+        return self.tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+
     def external_wire(self) -> Mapping[str, Any] | None:
         """The upstream's own JSON definition, or None when not captured. In
         transparent mode the external name is the bare name, so nothing in it
@@ -52,24 +61,48 @@ class RoutingTable:
         self._transparent = transparent
         self._by_external_name: dict[str, RoutedTool] = {}
 
+    def entries_for(
+        self,
+        server_id: str,
+        tools: list[types.Tool],
+        raw_tools: list[dict[str, Any]] | None = None,
+    ) -> list[RoutedTool]:
+        """Routing entries for one server's listing, without changing the table.
+
+        `raw_tools` are the definitions as the upstream sent them, one per
+        entry of `tools` and in the same order. Raises `ValueError` for a name
+        that repeats in the listing or that another server already uses.
+        """
+        if raw_tools is not None and len(raw_tools) != len(tools):
+            raise ValueError("raw_tools must hold one definition per tool")
+        taken = {n for n, r in self._by_external_name.items() if r.server_id != server_id}
+        entries: list[RoutedTool] = []
+        for index, tool in enumerate(tools):
+            name = tool.name if self._transparent else external_tool_name(server_id, tool.name)
+            if name in taken:
+                raise ValueError(f"duplicate external tool name: {name!r}")
+            taken.add(name)
+            entries.append(
+                RoutedTool(
+                    server_id, tool.name, name, tool, raw_tools[index] if raw_tools else None
+                )
+            )
+        return entries
+
     def register_server_tools(
         self,
         server_id: str,
         tools: list[types.Tool],
         raw_tools: list[dict[str, Any]] | None = None,
     ) -> None:
-        """`raw_tools` are the definitions as the upstream sent them, one per
-        entry of `tools` and in the same order (each tool is built from its
-        raw object)."""
-        if raw_tools is not None and len(raw_tools) != len(tools):
-            raise ValueError("raw_tools must hold one definition per tool")
-        for index, tool in enumerate(tools):
-            name = tool.name if self._transparent else external_tool_name(server_id, tool.name)
-            if name in self._by_external_name:
-                raise ValueError(f"duplicate external tool name: {name!r}")
-            self._by_external_name[name] = RoutedTool(
-                server_id, tool.name, name, tool, raw_tools[index] if raw_tools else None
-            )
+        if any(r.server_id == server_id for r in self._by_external_name.values()):
+            raise ValueError(f"server {server_id!r} is already registered")
+        self.replace_server_entries(server_id, self.entries_for(server_id, tools, raw_tools))
+
+    def replace_server_entries(self, server_id: str, entries: list[RoutedTool]) -> None:
+        """Swap one server's entries, from `entries_for`, in one step (T2)."""
+        kept = {n: r for n, r in self._by_external_name.items() if r.server_id != server_id}
+        self._by_external_name = {**kept, **{r.external_name: r for r in entries}}
 
     def replace_server_tools(
         self,
@@ -77,19 +110,9 @@ class RoutingTable:
         tools: list[types.Tool],
         raw_tools: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Swap one server's tools for a fresh listing (re-discovery, T2).
-
-        Other servers' entries are untouched; a name that would collide with
-        one of them raises, and the table is left as it was.
-        """
-        kept = {n: r for n, r in self._by_external_name.items() if r.server_id != server_id}
-        previous = self._by_external_name
-        self._by_external_name = kept
-        try:
-            self.register_server_tools(server_id, tools, raw_tools)
-        except ValueError:
-            self._by_external_name = previous
-            raise
+        """Swap one server's tools for a fresh listing; on a name collision the
+        table is left as it was."""
+        self.replace_server_entries(server_id, self.entries_for(server_id, tools, raw_tools))
 
     def entries(self) -> list[RoutedTool]:
         return list(self._by_external_name.values())

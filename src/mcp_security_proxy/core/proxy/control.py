@@ -74,6 +74,9 @@ class CallAuthorization:
     decision: Decision
     reports: tuple[InspectionReport, ...]
     hidden: bool
+    # The definition resolved when the call was authorised. Result reviews use
+    # it, so re-discovery removing the tool mid-call can't break them (T2).
+    definition: ToolDefinition | None = None
 
     @property
     def permits_dispatch(self) -> bool:
@@ -137,10 +140,13 @@ class ProxyControl:
         for routed in tools:
             if not policy.can_discover(routed.tool_id):
                 continue
-            reports = await self._inspect_definition(principal, task, policy, routed)
+            definition = self._registry.current(routed.tool_id)
+            if definition is None:
+                continue  # removed by re-discovery since the listing was taken
+            reports = await self._inspect_definition(principal, task, policy, definition)
             review = self._guard.review(policy, reports)
             if review.outcome is Outcome.REDACT:
-                exposed = redact(self._definition(routed).definition, review.redactions)
+                exposed = redact(definition.definition, review.redactions)
                 if exposed is None:
                     hidden.append(routed)
                     continue
@@ -164,29 +170,39 @@ class ProxyControl:
             hidden: bool = True,
         ) -> CallAuthorization:
             return CallAuthorization(
-                principal, task, correlation_id, routed, action, decision, reports, hidden
+                principal,
+                task,
+                correlation_id,
+                routed,
+                action,
+                decision,
+                reports,
+                hidden,
+                definition,
             )
 
-        if routed is None or not policy.can_discover(routed.tool_id):
-            tool_id = routed.tool_id if routed is not None else None
+        definition = self._registry.current(routed.tool_id) if routed is not None else None
+        if routed is None or definition is None or not policy.can_discover(routed.tool_id):
+            # No definition means re-discovery removed the tool: it no longer exists.
+            tool_id = routed.tool_id if routed is not None and definition is not None else None
             return authorization(self._guard.decide(tool_id, policy))
 
         # The same definition check that hides a tool from discovery also
         # applies to calls, so a hidden tool cannot be called by name.
-        definition_reports = await self._inspect_definition(principal, task, policy, routed)
+        definition_reports = await self._inspect_definition(principal, task, policy, definition)
         review = self._guard.review(policy, definition_reports)
         if review.outcome is not Outcome.ALLOW:
             decision = self._guard.decide(routed.tool_id, policy, definition_reports)
             # A redacted tool is visible, so its denial may say so.
             visible = (
                 review.outcome is Outcome.REDACT
-                and redact(self._definition(routed).definition, review.redactions) is not None
+                and redact(definition.definition, review.redactions) is not None
             )
             return authorization(decision, definition_reports, hidden=not visible)
 
         action = self._registry.action(routed.tool_id, arguments)
         event = execution_event(correlation_id, routed.tool_id, arguments, action)
-        reports = await self._inspect(event, principal, task, policy, self._definition(routed))
+        reports = await self._inspect(event, principal, task, policy, definition)
         decision = self._guard.decide(routed.tool_id, policy, reports)
         return authorization(decision, reports, action, hidden=False)
 
@@ -249,17 +265,14 @@ class ProxyControl:
         if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
             return DeliveryReview(self._guard.review(policy, ()), (), inspected=False)
 
+        definition = authorization.definition or self._registry.current(routed.tool_id)
+        if definition is None:
+            raise RuntimeError(f"no definition for {routed.tool_id} to review its result against")
         event = build(routed, action)
         reports = await self._inspect(
-            event, authorization.principal, authorization.task, policy, self._definition(routed)
+            event, authorization.principal, authorization.task, policy, definition
         )
         return DeliveryReview(self._guard.review(policy, reports), reports, inspected=True)
-
-    def _definition(self, routed: RoutedTool) -> ToolDefinition:
-        definition = self._registry.current(routed.tool_id)
-        if definition is None:
-            raise LookupError(f"routed tool {routed.tool_id} was never registered")
-        return definition
 
     async def inspect_instructions(self, server_id: str, text: str) -> tuple[InspectionReport, ...]:
         """A server's `initialize` instructions, inspected once at startup (I4).
@@ -283,12 +296,15 @@ class ProxyControl:
         return reports
 
     async def _inspect_definition(
-        self, principal: Principal, task: TaskRef, policy: PrincipalPolicy, routed: RoutedTool
+        self,
+        principal: Principal,
+        task: TaskRef,
+        policy: PrincipalPolicy,
+        definition: ToolDefinition,
     ) -> tuple[InspectionReport, ...]:
         if not self._runner.applies_to(Stage.DISCOVERY):
             return ()
-        definition = self._definition(routed)
-        key = (task, routed.tool_id, definition.version, policy.policy_version)
+        key = (task, definition.tool_id, definition.version, policy.policy_version)
         cached = self._definition_cache.get(key)
         if cached is not None:
             return cached

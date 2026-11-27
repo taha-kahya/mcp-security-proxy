@@ -13,44 +13,55 @@ approved version is the first one seen by each process.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
-from mcp_security_proxy.sdk import ToolDefinition, ToolId
+from mcp_security_proxy.sdk import ToolDefinition, ToolId, canonical_digest, thaw
 from mcp_security_proxy.services.state import Change, Scope, StateStore
 
 OWNER = "registry_baseline"
 SCOPE = Scope(OWNER, "-", "-")
 
 
-def _thaw(value: Any) -> Any:
-    """Plain dicts and lists from the store's frozen values."""
-    if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_thaw(item) for item in value]
-    return value
-
-
 class DefinitionBaselines:
-    def __init__(self, state: StateStore) -> None:
+    """`normalize` maps a definition to the one canonical form that is stored
+    and compared. It is applied to what is stored and, on every load, to what
+    was stored before, so a change in how definitions are serialized (another
+    MCP SDK version, leaving transparent mode) isn't mistaken for drift."""
+
+    def __init__(
+        self,
+        state: StateStore,
+        normalize: Callable[[Mapping[str, Any]], Mapping[str, Any]] = thaw,
+        attempts: int = 5,
+    ) -> None:
         self._state = state
+        self._normalize = normalize
+        self._attempts = attempts
+
+    def canonical(self, definition: ToolDefinition) -> ToolDefinition:
+        body = self._normalize(thaw(definition.definition))
+        return ToolDefinition(definition.tool_id, canonical_digest(body), body)
 
     async def approve_if_new(self, definition: ToolDefinition) -> ToolDefinition:
         """The approved version of `definition.tool_id`: the stored one if any,
-        otherwise `definition`, which is stored as approved."""
+        otherwise `definition` (in canonical form), which is stored as approved.
+
+        A concurrent writer can approve first, or `forget` can clear the value
+        between the write and the re-read; both are retried, never crashed on.
+        """
         key = str(definition.tool_id)
-        stored = await self._state.read(SCOPE, key)
-        if stored.value is not None:
-            return self._definition(definition.tool_id, stored.value)
-        # Absent, or forgotten (the store has no delete, so forgetting writes None).
-        value = {"version": definition.version, "definition": _thaw(definition.definition)}
-        result = await self._state.compare_and_set(SCOPE, key, stored.version, value)
-        if result.applied:
-            return definition
-        # Another writer approved it first; theirs stands.
-        stored = await self._state.read(SCOPE, key)
-        return self._definition(definition.tool_id, stored.value)
+        current = self.canonical(definition)
+        for _ in range(self._attempts):
+            stored = await self._state.read(SCOPE, key)
+            if stored.value is not None:
+                return self._definition(definition.tool_id, stored.value)
+            # Absent, or forgotten (the store has no delete, so forgetting writes None).
+            value = {"version": current.version, "definition": thaw(current.definition)}
+            result = await self._state.compare_and_set(SCOPE, key, stored.version, value)
+            if result.applied:
+                return current
+        raise RuntimeError(f"approved definition of {key} kept changing; retry")
 
     async def forget(self, tool_ids: Iterable[ToolId] | None = None) -> list[str]:
         """Drop approved versions (all of them when `tool_ids` is None), so the
@@ -69,6 +80,6 @@ class DefinitionBaselines:
                 raise RuntimeError("approved definitions changed while forgetting them; retry")
         return [change.key for change in changes]
 
-    @staticmethod
-    def _definition(tool_id: ToolId, value: Any) -> ToolDefinition:
-        return ToolDefinition(tool_id, value["version"], _thaw(value["definition"]))
+    def _definition(self, tool_id: ToolId, value: Any) -> ToolDefinition:
+        body = self._normalize(thaw(value["definition"]))
+        return ToolDefinition(tool_id, canonical_digest(body), body)

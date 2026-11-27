@@ -26,7 +26,11 @@ from mcp_security_proxy.sdk import Defense
 from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.log import AuditSink
 from mcp_security_proxy.services.policy import parse_policy
-from mcp_security_proxy.services.registry import ConfiguredToolAdapter, parse_tool_semantics
+from mcp_security_proxy.services.registry import (
+    ConfiguredToolAdapter,
+    Registry,
+    parse_tool_semantics,
+)
 from mcp_security_proxy.services.scan import RuleScanner
 from mcp_security_proxy.services.state import InMemoryStateStore, StateStore
 
@@ -47,6 +51,7 @@ class ProxyUnderTest:
     orchestrator: ProxyOrchestrator
     history: History
     correlation: CorrelationTracker
+    registry: Registry
 
 
 def build_proxy(
@@ -86,14 +91,15 @@ def build_proxy(
     store = state or InMemoryStateStore()
     history = History(store)
     correlation = CorrelationTracker()
+    registry = build_registry(routing, semantics)
     orchestrator = ProxyOrchestrator(
         routing=routing,
         upstreams=upstreams,
-        control=build_control(setup, build_registry(routing, semantics), history, store),
+        control=build_control(setup, registry, history, store),
         audit=audit,
         correlation=correlation,
     )
-    return ProxyUnderTest(orchestrator, history, correlation)
+    return ProxyUnderTest(orchestrator, history, correlation, registry)
 
 
 def _factory(defense: Defense) -> Any:
