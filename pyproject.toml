@@ -13,10 +13,20 @@ dependencies = [
     "uvicorn>=0.30.0,<1.0.0",
 ]
 
+[project.optional-dependencies]
+# Scan's classifier stage (ADR 0026). The core never imports these; install
+# with `uv sync --extra classifier` only where scan.classifier is configured.
+classifier = [
+    "safetensors>=0.8.0,<1.0.0",
+    "torch>=2.15.0,<3.0.0",
+    "transformers>=5.22.0,<6.0.0",
+]
+
 # Defenses register here; config/defenses/ decides which are enabled.
 [project.entry-points."mcp_security_proxy.defenses"]
 call_budget = "mcp_security_proxy.defenses.samples.call_budget:create"
 direct_claim_mismatch = "mcp_security_proxy.defenses.direct.claim_mismatch:create"
+direct_definition_classifier = "mcp_security_proxy.defenses.direct.definition_classifier:create"
 direct_hidden_metadata = "mcp_security_proxy.defenses.direct.hidden_metadata:create"
 direct_schema_injection = "mcp_security_proxy.defenses.direct.schema_injection:create"
 direct_tool_name_spoofing = "mcp_security_proxy.defenses.direct.tool_name_spoofing:create"
@@ -59,3 +69,19 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 packages = ["mcp_security_proxy", "fixtures"]
 mypy_path = ["src"]
+
+# The classifier extra (ADR 0026) is imported lazily and used as Any; its
+# stubs are not checked (numpy's need Python 3.12 syntax).
+[[tool.mypy.overrides]]
+module = [
+    "numpy",
+    "numpy.*",
+    "safetensors",
+    "safetensors.*",
+    "torch",
+    "torch.*",
+    "transformers",
+    "transformers.*",
+]
+follow_imports = "skip"
+follow_imports_for_stubs = true

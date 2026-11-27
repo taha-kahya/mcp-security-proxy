@@ -8,14 +8,18 @@ anything; the orchestrator does that with what this returns.
 Every method except `serialized` must be called while holding
 `serialized(principal)`, so that deciding a call and reserving it in
 History happen against the same history, even under concurrent calls.
+
+Before definitions are inspected, `prescan` (Scan's classifier stage, ADR
+0026) scores them outside the defense deadline, so a defense only reads the
+cached result.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from mcp import types
 
@@ -50,6 +54,17 @@ from mcp_security_proxy.services.registry import Registry
 from mcp_security_proxy.services.state import DefenseStateStore, StateUnavailableError, TaskRef
 
 _EXPOSED = frozenset({Outcome.ALLOW, Outcome.REDACT})
+
+
+class DefinitionPrescan(Protocol):
+    """Work done once per tool definition before it is inspected; its
+    results stay readable until the block exits. Must not raise for a failed
+    scan: a definition left unscored is reported by the defense that reads
+    it as failed."""
+
+    def prepared(
+        self, definitions: Iterable[Mapping[str, Any]]
+    ) -> AbstractAsyncContextManager[None]: ...
 
 
 @dataclass(frozen=True)
@@ -108,6 +123,7 @@ class ProxyControl:
         runner: Runner,
         guard: Guard,
         locks: TaskLocks | None = None,
+        prescan: DefinitionPrescan | None = None,
     ) -> None:
         self._policy = policy
         self._tasks = tasks
@@ -117,6 +133,7 @@ class ProxyControl:
         self._runner = runner
         self._guard = guard
         self._locks = locks or TaskLocks()
+        self._prescan = prescan
         # Keyed by (task, tool, tool definition version, policy version). A
         # repeat `discover`/`authorize_call` for the same combination (one
         # `tools/list` inspects every visible tool; a call re-checks its
@@ -137,21 +154,30 @@ class ProxyControl:
         visible: list[RoutedTool] = []
         hidden: list[RoutedTool] = []
         redacted: dict[str, Mapping[str, Any]] = {}
+        discoverable: list[tuple[RoutedTool, ToolDefinition]] = []
         for routed in tools:
             if not policy.can_discover(routed.tool_id):
                 continue
             definition = self._registry.current(routed.tool_id)
             if definition is None:
                 continue  # removed by re-discovery since the listing was taken
-            reports = await self._inspect_definition(principal, task, policy, definition)
-            review = self._guard.review(policy, reports)
-            if review.outcome is Outcome.REDACT:
-                exposed = redact(definition.definition, review.redactions)
-                if exposed is None:
-                    hidden.append(routed)
-                    continue
-                redacted[routed.external_name] = exposed
-            (visible if review.outcome in _EXPOSED else hidden).append(routed)
+            discoverable.append((routed, definition))
+        # One batch for the tools not inspected yet, so the model runs once
+        # per listing and never for a tool whose reports are cached.
+        uninspected = self._uninspected(task, policy, (d for _, d in discoverable))
+        async with self._prepared(uninspected):
+            for routed, definition in discoverable:
+                reports = await self._inspect_definition(
+                    principal, task, policy, definition, prepared=True
+                )
+                review = self._guard.review(policy, reports)
+                if review.outcome is Outcome.REDACT:
+                    exposed = redact(definition.definition, review.redactions)
+                    if exposed is None:
+                        hidden.append(routed)
+                        continue
+                    redacted[routed.external_name] = exposed
+                (visible if review.outcome in _EXPOSED else hidden).append(routed)
         return Discovery(tuple(visible), tuple(hidden), policy.policy_version, redacted)
 
     async def authorize_call(
@@ -301,19 +327,43 @@ class ProxyControl:
         task: TaskRef,
         policy: PrincipalPolicy,
         definition: ToolDefinition,
+        *,
+        prepared: bool = False,
     ) -> tuple[InspectionReport, ...]:
+        """`prepared`: the caller holds a prescan of this tool, as
+        `discover` does for its listing. Otherwise, for a call, the tool is
+        prescanned on its own (a no-op when a listing already scored it)."""
         if not self._runner.applies_to(Stage.DISCOVERY):
             return ()
-        key = (task, definition.tool_id, definition.version, policy.policy_version)
-        cached = self._definition_cache.get(key)
+        cached = self._cached(task, policy, definition)
         if cached is not None:
             return cached
-        reports = await self._inspect(
-            discovery_event(definition), principal, task, policy, definition
-        )
+        async with nullcontext() if prepared else self._prepared([definition]):
+            reports = await self._inspect(
+                discovery_event(definition), principal, task, policy, definition
+            )
         if self._cacheable(reports):
+            key = (task, definition.tool_id, definition.version, policy.policy_version)
             self._definition_cache[key] = reports
         return reports
+
+    def _cached(
+        self, task: TaskRef, policy: PrincipalPolicy, definition: ToolDefinition
+    ) -> tuple[InspectionReport, ...] | None:
+        key = (task, definition.tool_id, definition.version, policy.policy_version)
+        return self._definition_cache.get(key)
+
+    def _uninspected(
+        self, task: TaskRef, policy: PrincipalPolicy, definitions: Iterable[ToolDefinition]
+    ) -> list[ToolDefinition]:
+        if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
+            return []
+        return [d for d in definitions if self._cached(task, policy, d) is None]
+
+    def _prepared(self, definitions: Iterable[ToolDefinition]) -> AbstractAsyncContextManager[None]:
+        if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
+            return nullcontext()
+        return self._prescan.prepared([d.definition for d in definitions])
 
     def _cacheable(self, reports: Iterable[InspectionReport]) -> bool:
         """A failed inspection may be transient (a timeout, a raised error),

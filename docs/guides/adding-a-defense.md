@@ -93,6 +93,8 @@ def create(settings: Mapping[str, Any]) -> MyCheck:
 **Use only what you declare.** The context gives you only the capabilities
 in `required_capabilities` (`registry`, `history`, `policy`,
 `private_state`, `scan`). Using an undeclared one fails the inspection.
+A defense that reads `scan.poisoning` also declares `scan_classifier`, so
+it fails at startup when no classifier is configured.
 
 **Scan** finds evidence in text; your defense decides what it means.
 `await context.scan.instructions(value)` (also `hidden`, `lookalikes`,
@@ -102,7 +104,11 @@ decodings that revealed them, and whether they were `concealed`. Map
 matches to your own rule ids and severities, and put `match.ref` in
 `evidence_refs`. Don't catch `ScanError`: an unscanned value must fail the
 inspection, not pass it. See `defenses/indirect/result_injection` for a
-short example.
+short example. `await context.scan.poisoning(definition)` returns the
+classifier stage's grade of a whole tool definition (`match.label` is
+`medium`, `high` or `critical`). The proxy scores definitions before your
+defense runs, so reading the grade is instant; see
+`defenses/direct/definition_classifier`.
 
 **Signals** are observations for other defenses (for example, "sensitive
 data seen"). Declare their types in `produced_signals` and set
@@ -118,6 +124,20 @@ changes to the same key fail the inspection.
 **Rule ids** are your defense id or start with it and a dot, such as
 `my_check.too_many`. A finding with any other rule id fails the inspection,
 so one defense can't receive another's enforcement.
+
+**Destinations.** To judge where a URL or host points, call
+`classify_destination(value)` rather than matching it yourself. It needs no
+capability and does no I/O. It sees through disguised addresses
+(`http://2852039166/` is the metadata endpoint) and labels a plain hostname
+`name`, not `external`, since it can't resolve it:
+
+```python
+from mcp_security_proxy.sdk import DestinationKind, classify_destination
+
+destination = classify_destination(url)
+if destination.kind is DestinationKind.METADATA:
+    ...  # finding with evidence_refs=("/arguments/url",)
+```
 
 ## 2. Test it without the proxy
 

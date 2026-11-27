@@ -103,9 +103,11 @@ nav:
       - decisions/0023-evaluation-readiness-and-transparent-mode.md
       - decisions/0024-v4-delivery-by-category-tracks.md
       - decisions/0025-scan-contract-and-rule-stage.md
+      - decisions/0026-scan-classifier-stage.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
       - runbooks/server-admission.md
+      - runbooks/scan-classifier.md
 
 extra_css:
   - assets/site.css

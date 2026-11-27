@@ -14,6 +14,11 @@ Scan is async and stage-aware so later stages (a local classifier, a model
 check) can sit behind the same methods without changing defenses. A scan
 that cannot complete raises `ScanError`; it never returns an empty result
 for content it did not inspect.
+
+`poisoning` is the classifier stage (ADR 0026): a model that grades a whole
+tool definition. It runs once per definition version before discovery
+inspection, outside the defense deadline, so the method only reads its
+cached result; a definition it has not scored raises `ScanError`.
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ class Detector(StrEnum):
     LOOKALIKES = "lookalikes"
     SECRETS = "secrets"
     COMMANDS = "commands"
+    POISONING = "poisoning"
 
 
 class MatchKind(StrEnum):
@@ -65,6 +71,9 @@ class MatchKind(StrEnum):
     # commands (SDK 1.2): values a model would run, or files it would read
     SHELL_COMMAND = "shell_command"
     CREDENTIAL_PATH = "credential_path"
+    # poisoning: the whole tool definition; `ScanMatch.label` is the graded
+    # level, `medium`, `high` or `critical`
+    POISONED_DEFINITION = "poisoned_definition"
 
 
 class Decoding(StrEnum):
@@ -79,9 +88,10 @@ class Decoding(StrEnum):
 
 
 class ScanStage(StrEnum):
-    """The stage that produced a match. Only `rules` exists today."""
+    """The stage that produced a match."""
 
     RULES = "rules"
+    CLASSIFIER = "classifier"
 
 
 class Confidence(StrEnum):
@@ -165,4 +175,12 @@ class ScanView(Protocol):
 
     async def commands(self, value: Any) -> ScanResult:
         """Shell command syntax and credential file paths (SDK 1.2)."""
+        ...
+
+    async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
+        """Grade a tool definition (as listed by `tools/list`) with the
+        classifier stage. At most one match, pointing at the whole definition
+        (`pointer` `""`, `span` `(0, 0)`), whose `label` is the level. Raises
+        `ScanError` when no classifier is configured or the definition has not
+        been scored."""
         ...

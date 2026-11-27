@@ -31,7 +31,7 @@ from mcp_security_proxy.services.registry import (
     Registry,
     parse_tool_semantics,
 )
-from mcp_security_proxy.services.scan import RuleScanner
+from mcp_security_proxy.services.scan import RuleScanner, Scan
 from mcp_security_proxy.services.state import InMemoryStateStore, StateStore
 
 
@@ -65,6 +65,7 @@ def build_proxy(
     tool_operations: Mapping[str, str] | None = None,
     state: StateStore | None = None,
     deadline_seconds: float = 1.0,
+    scan: Scan | None = None,
 ) -> ProxyUnderTest:
     """`tool_operations` maps `server_id/tool` to an operation name."""
     catalog = StaticCatalog({d.manifest().id: _factory(d) for d in defenses})
@@ -86,7 +87,7 @@ def build_proxy(
         plan=plan,
         tool_semantics=semantics,
         defense_deadline_seconds=deadline_seconds,
-        scan=RuleScanner(),
+        scan=scan or Scan(RuleScanner()),
     )
     store = state or InMemoryStateStore()
     history = History(store)

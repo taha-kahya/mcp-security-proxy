@@ -88,7 +88,10 @@ and never as uninspected forwarding by default (ADR 0016; ADR 0021 names these
 surfaces as an Indirect need). It reuses Scan, and these surfaces are invisible
 to the proxy today, so no defense can be evaluated on them.
 
-**8. The model-based classifier is parked, and its shape is fixed now.** It is
+**8. The model-based classifier is parked, and its shape is fixed now.**
+(Un-parked by [0026](0026-scan-classifier-stage.md), which keeps this shape
+but lets the grade's severity decide enforcement instead of
+`require_approval`.) It is
 not on the path to the demo. When added, it runs as a scan once per
 tool-definition version, outside the defense deadline, and its result is
 cached by definition hash, scanner version and settings. The defense that reads

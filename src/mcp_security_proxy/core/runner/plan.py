@@ -60,6 +60,14 @@ class ExecutionPlan:
     def defense_ids(self) -> list[str]:
         return sorted({d.manifest.id for stage in self._by_stage.values() for d in stage})
 
+    def requires(self, capability: Capability) -> bool:
+        """Whether any planned defense declares `capability`."""
+        return any(
+            capability in d.manifest.required_capabilities
+            for stage in self._by_stage.values()
+            for d in stage
+        )
+
 
 def build_plan(
     specs: Sequence[DefenseSpec],

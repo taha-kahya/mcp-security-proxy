@@ -35,3 +35,4 @@ Use `0000-template.md` as the starting point for a new record. Number sequential
 | [0023](0023-evaluation-readiness-and-transparent-mode.md) | Evaluation readiness: transparent mode, three evaluation arms, and coverage order | Accepted |
 | [0024](0024-v4-delivery-by-category-tracks.md) | V4 delivery: shared foundations first, then one track per attack category | Accepted |
 | [0025](0025-scan-contract-and-rule-stage.md) | Scan: an async, stage-aware contract and its rule stage | Accepted |
+| [0026](0026-scan-classifier-stage.md) | Scan's classifier stage: a local model that grades tool definitions | Accepted |
