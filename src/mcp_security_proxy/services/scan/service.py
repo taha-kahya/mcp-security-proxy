@@ -29,6 +29,15 @@ class Scan:
     async def secrets(self, value: Any) -> ScanResult:
         return await self._rules.secrets(value)
 
+    async def commands(self, value: Any) -> ScanResult:
+        return await self._rules.commands(value)
+
+    async def skeleton(self, text: str) -> str:
+        return await self._rules.skeleton(text)
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        return await self._rules.skeletons(texts)
+
     async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
         if self._classifier is None:
             return await self._rules.poisoning(definition)

@@ -16,17 +16,25 @@ cached result.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from mcp import types
 
 from mcp_security_proxy.core.guard import Decision, Guard, Outcome
 from mcp_security_proxy.core.identity import TaskResolver
-from mcp_security_proxy.core.proxy.events import delivery_event, discovery_event, execution_event
+from mcp_security_proxy.core.proxy.events import (
+    delivery_event,
+    discovery_event,
+    error_event,
+    execution_event,
+    progress_event,
+)
+from mcp_security_proxy.core.proxy.instructions import STARTUP_PRINCIPAL, instructions_event
 from mcp_security_proxy.core.proxy.locks import TaskLocks
+from mcp_security_proxy.core.proxy.redaction import redact
 from mcp_security_proxy.core.proxy.routing.table import RoutedTool
 from mcp_security_proxy.core.runner import InspectionReport, InspectionScope, Runner
 from mcp_security_proxy.sdk import (
@@ -45,6 +53,8 @@ from mcp_security_proxy.services.policy import PolicySnapshot, PrincipalPolicy
 from mcp_security_proxy.services.registry import Registry
 from mcp_security_proxy.services.state import DefenseStateStore, StateUnavailableError, TaskRef
 
+_EXPOSED = frozenset({Outcome.ALLOW, Outcome.REDACT})
+
 
 class DefinitionPrescan(Protocol):
     """Work done once per tool definition before it is inspected; its
@@ -62,6 +72,8 @@ class Discovery:
     visible: tuple[RoutedTool, ...]
     hidden_by_inspection: tuple[RoutedTool, ...]
     policy_version: str
+    # external name -> the definition to expose, flagged fields replaced (D5)
+    redacted: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -77,6 +89,9 @@ class CallAuthorization:
     decision: Decision
     reports: tuple[InspectionReport, ...]
     hidden: bool
+    # The definition resolved when the call was authorised. Result reviews use
+    # it, so re-discovery removing the tool mid-call can't break them (T2).
+    definition: ToolDefinition | None = None
 
     @property
     def permits_dispatch(self) -> bool:
@@ -138,17 +153,32 @@ class ProxyControl:
         policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
         visible: list[RoutedTool] = []
         hidden: list[RoutedTool] = []
-        discoverable = [routed for routed in tools if policy.can_discover(routed.tool_id)]
+        redacted: dict[str, Mapping[str, Any]] = {}
+        discoverable: list[tuple[RoutedTool, ToolDefinition]] = []
+        for routed in tools:
+            if not policy.can_discover(routed.tool_id):
+                continue
+            definition = self._registry.current(routed.tool_id)
+            if definition is None:
+                continue  # removed by re-discovery since the listing was taken
+            discoverable.append((routed, definition))
         # One batch for the tools not inspected yet, so the model runs once
         # per listing and never for a tool whose reports are cached.
-        async with self._prepared(self._uninspected(task, policy, discoverable)):
-            for routed in discoverable:
+        uninspected = self._uninspected(task, policy, (d for _, d in discoverable))
+        async with self._prepared(uninspected):
+            for routed, definition in discoverable:
                 reports = await self._inspect_definition(
-                    principal, task, policy, routed, prepared=True
+                    principal, task, policy, definition, prepared=True
                 )
                 review = self._guard.review(policy, reports)
-                (visible if review.outcome is Outcome.ALLOW else hidden).append(routed)
-        return Discovery(tuple(visible), tuple(hidden), policy.policy_version)
+                if review.outcome is Outcome.REDACT:
+                    exposed = redact(definition.definition, review.redactions)
+                    if exposed is None:
+                        hidden.append(routed)
+                        continue
+                    redacted[routed.external_name] = exposed
+                (visible if review.outcome in _EXPOSED else hidden).append(routed)
+        return Discovery(tuple(visible), tuple(hidden), policy.policy_version, redacted)
 
     async def authorize_call(
         self,
@@ -166,23 +196,39 @@ class ProxyControl:
             hidden: bool = True,
         ) -> CallAuthorization:
             return CallAuthorization(
-                principal, task, correlation_id, routed, action, decision, reports, hidden
+                principal,
+                task,
+                correlation_id,
+                routed,
+                action,
+                decision,
+                reports,
+                hidden,
+                definition,
             )
 
-        if routed is None or not policy.can_discover(routed.tool_id):
-            tool_id = routed.tool_id if routed is not None else None
+        definition = self._registry.current(routed.tool_id) if routed is not None else None
+        if routed is None or definition is None or not policy.can_discover(routed.tool_id):
+            # No definition means re-discovery removed the tool: it no longer exists.
+            tool_id = routed.tool_id if routed is not None and definition is not None else None
             return authorization(self._guard.decide(tool_id, policy))
 
         # The same definition check that hides a tool from discovery also
         # applies to calls, so a hidden tool cannot be called by name.
-        definition_reports = await self._inspect_definition(principal, task, policy, routed)
-        if self._guard.review(policy, definition_reports).outcome is not Outcome.ALLOW:
+        definition_reports = await self._inspect_definition(principal, task, policy, definition)
+        review = self._guard.review(policy, definition_reports)
+        if review.outcome is not Outcome.ALLOW:
             decision = self._guard.decide(routed.tool_id, policy, definition_reports)
-            return authorization(decision, definition_reports)
+            # A redacted tool is visible, so its denial may say so.
+            visible = (
+                review.outcome is Outcome.REDACT
+                and redact(definition.definition, review.redactions) is not None
+            )
+            return authorization(decision, definition_reports, hidden=not visible)
 
         action = self._registry.action(routed.tool_id, arguments)
         event = execution_event(correlation_id, routed.tool_id, arguments, action)
-        reports = await self._inspect(event, principal, task, policy, self._definition(routed))
+        reports = await self._inspect(event, principal, task, policy, definition)
         decision = self._guard.decide(routed.tool_id, policy, reports)
         return authorization(decision, reports, action, hidden=False)
 
@@ -204,31 +250,83 @@ class ProxyControl:
     async def review_result(
         self, authorization: CallAuthorization, result: types.CallToolResult
     ) -> DeliveryReview:
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: delivery_event(
+                authorization.correlation_id, routed.tool_id, result, action
+            ),
+        )
+
+    async def review_error(
+        self, authorization: CallAuthorization, error: types.ErrorData
+    ) -> DeliveryReview:
+        """An upstream JSON-RPC error goes through delivery inspection too (I3)."""
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: error_event(
+                authorization.correlation_id, routed.tool_id, error, action
+            ),
+        )
+
+    async def review_progress(
+        self, authorization: CallAuthorization, progress: float, total: float | None, message: str
+    ) -> DeliveryReview:
+        """A progress message goes through delivery inspection before it is relayed (I3)."""
+        return await self._review_delivery(
+            authorization,
+            lambda routed, action: progress_event(
+                authorization.correlation_id, routed.tool_id, progress, total, message, action
+            ),
+        )
+
+    async def _review_delivery(
+        self,
+        authorization: CallAuthorization,
+        build: Callable[[RoutedTool, Action], Event],
+    ) -> DeliveryReview:
         routed, action = authorization.routed, authorization.action
         if routed is None or action is None:
-            raise RuntimeError("review_result() requires an authorization that permits dispatch")
+            raise RuntimeError("delivery review requires an authorization that permits dispatch")
         policy = self._policy.for_principal(authorization.principal)
         if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
             return DeliveryReview(self._guard.review(policy, ()), (), inspected=False)
 
-        event = delivery_event(authorization.correlation_id, routed.tool_id, result, action)
+        definition = authorization.definition or self._registry.current(routed.tool_id)
+        if definition is None:
+            raise RuntimeError(f"no definition for {routed.tool_id} to review its result against")
+        event = build(routed, action)
         reports = await self._inspect(
-            event, authorization.principal, authorization.task, policy, self._definition(routed)
+            event, authorization.principal, authorization.task, policy, definition
         )
         return DeliveryReview(self._guard.review(policy, reports), reports, inspected=True)
 
-    def _definition(self, routed: RoutedTool) -> ToolDefinition:
-        definition = self._registry.current(routed.tool_id)
-        if definition is None:
-            raise LookupError(f"routed tool {routed.tool_id} was never registered")
-        return definition
+    async def inspect_instructions(self, server_id: str, text: str) -> tuple[InspectionReport, ...]:
+        """A server's `initialize` instructions, inspected once at startup (I4).
+
+        They reach every agent, so they are inspected as the proxy's own
+        startup principal rather than any agent's.
+        """
+        if not self._runner.applies_to(Stage.BEFORE_DELIVERY):
+            return ()
+        principal = STARTUP_PRINCIPAL
+        policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
+        scope = InspectionScope(
+            principal=principal,
+            task=task,
+            policy=policy,
+            registry=self._registry,
+            history=await self._history.snapshot(task),
+        )
+        reports = await self._runner.inspect(instructions_event(server_id, text), scope)
+        await self._commit(task, reports)
+        return reports
 
     async def _inspect_definition(
         self,
         principal: Principal,
         task: TaskRef,
         policy: PrincipalPolicy,
-        routed: RoutedTool,
+        definition: ToolDefinition,
         *,
         prepared: bool = False,
     ) -> tuple[InspectionReport, ...]:
@@ -237,36 +335,35 @@ class ProxyControl:
         prescanned on its own (a no-op when a listing already scored it)."""
         if not self._runner.applies_to(Stage.DISCOVERY):
             return ()
-        cached = self._cached(task, policy, routed)
+        cached = self._cached(task, policy, definition)
         if cached is not None:
             return cached
-        definition = self._definition(routed)
-        async with nullcontext() if prepared else self._prepared([routed]):
+        async with nullcontext() if prepared else self._prepared([definition]):
             reports = await self._inspect(
                 discovery_event(definition), principal, task, policy, definition
             )
         if self._cacheable(reports):
-            key = (task, routed.tool_id, definition.version, policy.policy_version)
+            key = (task, definition.tool_id, definition.version, policy.policy_version)
             self._definition_cache[key] = reports
         return reports
 
     def _cached(
-        self, task: TaskRef, policy: PrincipalPolicy, routed: RoutedTool
+        self, task: TaskRef, policy: PrincipalPolicy, definition: ToolDefinition
     ) -> tuple[InspectionReport, ...] | None:
-        version = self._definition(routed).version
-        return self._definition_cache.get((task, routed.tool_id, version, policy.policy_version))
+        key = (task, definition.tool_id, definition.version, policy.policy_version)
+        return self._definition_cache.get(key)
 
     def _uninspected(
-        self, task: TaskRef, policy: PrincipalPolicy, tools: Iterable[RoutedTool]
-    ) -> list[RoutedTool]:
+        self, task: TaskRef, policy: PrincipalPolicy, definitions: Iterable[ToolDefinition]
+    ) -> list[ToolDefinition]:
         if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
             return []
-        return [routed for routed in tools if self._cached(task, policy, routed) is None]
+        return [d for d in definitions if self._cached(task, policy, d) is None]
 
-    def _prepared(self, tools: Iterable[RoutedTool]) -> AbstractAsyncContextManager[None]:
+    def _prepared(self, definitions: Iterable[ToolDefinition]) -> AbstractAsyncContextManager[None]:
         if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
             return nullcontext()
-        return self._prescan.prepared([self._definition(routed).definition for routed in tools])
+        return self._prescan.prepared([d.definition for d in definitions])
 
     def _cacheable(self, reports: Iterable[InspectionReport]) -> bool:
         """A failed inspection may be transient (a timeout, a raised error),

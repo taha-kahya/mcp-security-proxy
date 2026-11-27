@@ -71,6 +71,11 @@ nav:
       - design/defense-sdk-and-runner.md
       - design/v4-defense-plan.md
       - design/server-identity-and-registration-defense.md
+  - Attacks:
+      - attacks/direct.md
+      - attacks/indirect.md
+      - attacks/temporal.md
+      - attacks/environment.md
   - Decisions:
       - decisions/README.md
       - decisions/0001-language-runtime-and-tooling.md
@@ -101,6 +106,7 @@ nav:
       - decisions/0026-scan-classifier-stage.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
+      - runbooks/server-admission.md
       - runbooks/scan-classifier.md
 
 extra_css:

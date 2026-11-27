@@ -87,3 +87,37 @@ async def test_fake_scan_filters_by_detector_and_records_calls() -> None:
     assert (await scan.secrets("y")).matches == (secret,)
     assert (await scan.lookalikes("z")).matches == ()
     assert [d for d, _ in scan.scanned] == [Detector.HIDDEN, Detector.SECRETS, Detector.LOOKALIKES]
+
+
+async def test_fake_scan_skeleton_defaults_to_the_text_itself() -> None:
+    scan = FakeScan(skeleton_map={"rеad": "read"})
+    assert await scan.skeleton("rеad") == "read"
+    assert await scan.skeleton("write") == "write"
+
+
+async def test_rule_scanner_skeleton_matches_lookalikes_only() -> None:
+    from mcp_security_proxy.services.scan import RuleScanner
+
+    scan = RuleScanner()
+    assert await scan.skeleton("send_mеssage") == await scan.skeleton("send_message")
+    assert await scan.skeleton("send_message") != await scan.skeleton("read_record")
+
+
+async def test_rule_scanner_skeleton_enforces_the_size_limit() -> None:
+    from mcp_security_proxy.sdk import ScanLimitError
+    from mcp_security_proxy.services.scan import RuleScanner
+
+    with pytest.raises(ScanLimitError):
+        await RuleScanner(max_chars=10).skeleton("x" * 11)
+
+
+def test_fake_registry_lists_every_tool_once_in_order() -> None:
+    from mcp_security_proxy.sdk import Operation, ToolDefinition, ToolId
+    from mcp_security_proxy.sdk.testing import FakeRegistry, action
+
+    a, b = ToolId("s", "a"), ToolId("s", "b")
+    registry = FakeRegistry(
+        definitions={a: ToolDefinition(a, "v1", {})},
+        actions={b: action(Operation.READ), a: action(Operation.READ)},
+    )
+    assert registry.tool_ids() == [a, b]

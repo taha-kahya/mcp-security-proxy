@@ -1,0 +1,7 @@
+# Injected instructions written into call arguments, where another agent may
+# read them later (plan MR I2). Concealed text is high; plain text is medium
+# on calls that write, send, execute or are unclassified, and low on reads.
+# See src/mcp_security_proxy/defenses/indirect/argument_propagation.
+id: indirect_argument_propagation
+enabled: true
+settings: {}

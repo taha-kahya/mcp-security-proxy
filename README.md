@@ -30,7 +30,9 @@ Control (V2):
   which stays blocked until Approval exists in V5).
 - **Log:** every decision and upstream outcome is appended to a JSONL audit
   log with arguments masked. If a decision can't be recorded, the call is not
-  dispatched.
+  dispatched. Each record carries the hash of the one before it, so an edit,
+  insertion or deletion is detected by
+  `uv run python -m mcp_security_proxy.app.verify_audit proxy_audit.jsonl`.
 
 SDK and Runner (V3):
 
@@ -128,6 +130,14 @@ Both reference configs use the policy in
 `server_a`, most of `server_b`, `server_b__send_message` visible but
 requiring approval, and `server_b__slow_write` hidden. The proxy writes its
 audit log to `proxy_audit.jsonl` in the working directory.
+
+## Pinning server files
+
+A server entry can pin the file its `command` launches with `sha256:
+<64 lowercase hex>`. At startup the proxy hashes that file (the path given,
+or the first match on `PATH`), refuses to start if it differs, and launches
+the file it hashed. For `python -m ...` or `npx ...` the pin covers only the
+interpreter or runner, so pin the package version as well.
 
 ## Changing policy
 

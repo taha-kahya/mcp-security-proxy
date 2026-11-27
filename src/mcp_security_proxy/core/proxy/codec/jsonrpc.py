@@ -50,6 +50,15 @@ def withheld_result(reason: str, decision_id: str) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(text=message)], is_error=True)
 
 
+def withheld_error(code: int, reason: str, decision_id: str) -> MCPError:
+    """An upstream error whose text inspection withheld (I3); the code is kept."""
+    message = (
+        f"Upstream error withheld: {reason} (decision {decision_id}). "
+        "The call may have run; the server's error text was not released."
+    )
+    return MCPError(code=code, message=message)
+
+
 def blocked_call_result(reason: str, decision_id: str) -> types.CallToolResult:
     """A tool-level error for a call the agent may see but that was not dispatched."""
     message = f"Call blocked: {reason} (decision {decision_id})."

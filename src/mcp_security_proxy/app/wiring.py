@@ -23,12 +23,22 @@ from pydantic.alias_generators import to_camel
 
 from mcp_security_proxy.app.agent_facing import build_agent_facing
 from mcp_security_proxy.app.config import ProxyConfig, UpstreamServerConfig
+from mcp_security_proxy.app.integrity import check_servers
+from mcp_security_proxy.app.rediscovery import (
+    ToolRefresher,
+    UpstreamNotifications,
+    approve_current_definitions,
+    canonical_form,
+)
 from mcp_security_proxy.app.security import (
     build_control,
     build_registry,
     load_security,
     open_state,
 )
+from mcp_security_proxy.core.proxy.audit import inspection_summaries
+from mcp_security_proxy.core.proxy.control import ProxyControl
+from mcp_security_proxy.core.proxy.instructions import STARTUP_PRINCIPAL, compose, releasable
 from mcp_security_proxy.core.proxy.orchestrator import ProxyOrchestrator
 from mcp_security_proxy.core.proxy.routing.correlation import CorrelationTracker
 from mcp_security_proxy.core.proxy.routing.table import RoutingTable
@@ -39,27 +49,39 @@ from mcp_security_proxy.core.proxy.transport.streamable_http_client import (
 )
 from mcp_security_proxy.core.runner import DefenseCatalog, EntryPointCatalog
 from mcp_security_proxy.services.history import History
-from mcp_security_proxy.services.log import JsonlAuditSink
+from mcp_security_proxy.services.log import AuditSink, InstructionsRecord, JsonlAuditSink
 from mcp_security_proxy.services.policy import PolicyError, PolicySnapshot
+from mcp_security_proxy.services.registry import DefinitionBaselines
 
 logger = logging.getLogger(__name__)
 
 
 class ProxyApp:
-    def __init__(self, server: Server, serve: Callable[[Server], Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        server: Server,
+        serve: Callable[[Server], Awaitable[None]],
+        refresher: ToolRefresher | None = None,
+    ) -> None:
         self.server = server
         self._serve = serve
+        # Re-discovery on `tools/list_changed` (T2); exposed for tests.
+        self.refresher = refresher
 
     async def serve(self) -> None:
         await self._serve(self.server)
 
 
-def _connect_upstream(upstream: UpstreamServerConfig) -> AbstractAsyncContextManager[ClientSession]:
+def _connect_upstream(
+    upstream: UpstreamServerConfig, command: str, notifications: UpstreamNotifications
+) -> AbstractAsyncContextManager[ClientSession]:
+    """`command` is what to launch: for a pinned server, the file that was hashed."""
+    handler = notifications.handler(upstream.id)
     if upstream.transport == "stdio":
-        return connect_stdio_upstream(upstream.command, upstream.args)
+        return connect_stdio_upstream(command, upstream.args, handler)
     assert upstream.port is not None and upstream.url is not None  # enforced by config validation
     return spawn_streamable_http_upstream(
-        upstream.command, upstream.args, upstream.host, upstream.port, upstream.url
+        command, upstream.args, upstream.host, upstream.port, upstream.url, handler
     )
 
 
@@ -110,16 +132,23 @@ async def _discover_tools(
 ) -> RoutingTable:
     routing_table = RoutingTable(transparent=transparent)
     for server_id, session in sessions.items():
-        if transparent:
-            # One fetch: the typed tool is built from the same JSON object the
-            # agent will receive and the defenses and Registry will see.
-            raw = await _raw_tool_definitions(session)
-            tools = [types.Tool.model_validate(definition) for definition in raw]
-            _share_tool_listing_with_session(session, tools)
-            routing_table.register_server_tools(server_id, tools, raw)
-        else:
-            routing_table.register_server_tools(server_id, (await session.list_tools()).tools)
+        tools, raw = await _list_server_tools(session, transparent=transparent)
+        routing_table.register_server_tools(server_id, tools, raw)
     return routing_table
+
+
+async def _list_server_tools(
+    session: ClientSession, *, transparent: bool
+) -> tuple[list[types.Tool], list[dict[str, Any]] | None]:
+    """One server's tools, at startup and on re-discovery (T2)."""
+    if transparent:
+        # One fetch: the typed tool is built from the same JSON object the
+        # agent will receive and the defenses and Registry will see.
+        raw = await _raw_tool_definitions(session)
+        tools = [types.Tool.model_validate(definition) for definition in raw]
+        _share_tool_listing_with_session(session, tools)
+        return tools, raw
+    return list((await session.list_tools()).tools), None
 
 
 def _upstream_identity(
@@ -129,6 +158,36 @@ def _upstream_identity(
     on initialize. No `serverInfo` means the proxy keeps its own name."""
     (session,) = sessions.values()  # transparent mode has exactly one (see ProxyConfig)
     return session.server_info, session.instructions
+
+
+async def _inspected_instructions(
+    sessions: Mapping[str, ClientSession], control: ProxyControl, audit: AuditSink
+) -> str | None:
+    """Each upstream's instructions that inspection released, in the proxy's
+    own block (I4); the rest are withheld and logged."""
+    forwarded: dict[str, str] = {}
+    for server_id, session in sessions.items():
+        text = session.instructions
+        if not text:
+            continue
+        reports = await control.inspect_instructions(server_id, text)
+        released = releasable(reports)
+        await audit.write(
+            InstructionsRecord(
+                principal_id=STARTUP_PRINCIPAL.id,
+                authenticated_by=STARTUP_PRINCIPAL.authenticated_by,
+                server_id=server_id,
+                forwarded=released,
+                inspections=inspection_summaries(reports),
+            )
+        )
+        if released:
+            forwarded[server_id] = text
+        else:
+            logger.warning(
+                "withholding %r's instructions: inspection did not release them", server_id
+            )
+    return compose(forwarded)
 
 
 def _ensure_policy_targets_exist(policy: PolicySnapshot, routing_table: RoutingTable) -> None:
@@ -173,6 +232,7 @@ async def build_app(
     audit = JsonlAuditSink.create(config.audit_log_path)
     agent_facing = build_agent_facing(config)
     warn_about_principal_mismatches(security.policy, config.agent_principal_ids())
+    integrity = check_servers(config.servers)
 
     async with AsyncExitStack() as stack:
         state = open_state(config.state)
@@ -180,27 +240,44 @@ async def build_app(
         history = History(state)
         await _recover_history(history)
 
+        notifications = UpstreamNotifications()
         sessions = {
-            upstream.id: await stack.enter_async_context(_connect_upstream(upstream))
+            upstream.id: await stack.enter_async_context(
+                _connect_upstream(upstream, integrity[upstream.id].command, notifications)
+            )
             for upstream in config.servers
         }
         routing_table = await _discover_tools(sessions, transparent=config.transparent)
         _ensure_policy_targets_exist(security.policy, routing_table)
         registry = build_registry(routing_table, security.tool_semantics)
+        baselines = DefinitionBaselines(state, canonical_form(config.transparent))
+        await approve_current_definitions(registry, baselines)
+        refresher = ToolRefresher(
+            sessions,
+            routing_table,
+            registry,
+            baselines,
+            lambda session: _list_server_tools(session, transparent=config.transparent),
+        )
+        notifications.bind(refresher.schedule)
+        stack.push_async_callback(refresher.aclose)
 
+        control = build_control(security, registry, history, state)
         orchestrator = ProxyOrchestrator(
             routing=routing_table,
             upstreams=sessions,
-            control=build_control(security, registry, history, state),
+            control=control,
             audit=audit,
             correlation=CorrelationTracker(),
             forward_meta=config.transparent,
             unmasked_meta_keys=config.audit_meta_allowlist,
         )
         server_info, instructions = (
-            _upstream_identity(sessions) if config.transparent else (None, None)
+            _upstream_identity(sessions)
+            if config.transparent
+            else (None, await _inspected_instructions(sessions, control, audit))
         )
-        if instructions:
+        if instructions and config.transparent:
             logger.warning(
                 "transparent mode forwards the upstream's server instructions unchanged "
                 "(ADR 0023 decision 4); they are not inspected"
@@ -212,4 +289,4 @@ async def build_app(
             instructions,
             verbatim_tools=config.transparent,
         )
-        yield ProxyApp(server, agent_facing.serve)
+        yield ProxyApp(server, agent_facing.serve, refresher)

@@ -80,6 +80,17 @@ class DiscoveryRecord(AuditRecord):
     policy_version: str
     visible_tool_count: int
     hidden_by_inspection: tuple[str, ...] = ()
+    # Visible with flagged fields replaced by a proxy notice (D5).
+    redacted: tuple[str, ...] = ()
+
+
+class InstructionsRecord(AuditRecord):
+    """Whether a server's `initialize` instructions were forwarded (I4)."""
+
+    kind: Literal["instructions"] = "instructions"
+    server_id: str
+    forwarded: bool
+    inspections: tuple[InspectionSummary, ...] = ()
 
 
 class DecisionRecord(AuditRecord):

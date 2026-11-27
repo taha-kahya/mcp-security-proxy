@@ -79,12 +79,20 @@ def make_event(
 class FakeRegistry:
     definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
     actions: dict[ToolId, Action] = field(default_factory=dict)
+    approved_definitions: dict[ToolId, ToolDefinition] = field(default_factory=dict)
 
     def current(self, tool_id: ToolId) -> ToolDefinition | None:
         return self.definitions.get(tool_id)
 
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action:
         return self.actions.get(tool_id, Action.unknown(TEST_ADAPTER, "1"))
+
+    def tool_ids(self) -> list[ToolId]:
+        """Tools with a definition or an action, in insertion order."""
+        return list(dict.fromkeys([*self.definitions, *self.actions]))
+
+    def approved(self, tool_id: ToolId) -> ToolDefinition | None:
+        return self.approved_definitions.get(tool_id)
 
 
 @dataclass
@@ -107,6 +115,8 @@ class FakeScan:
 
     matches: tuple[ScanMatch, ...] = ()
     version: str = "fake-scan"
+    # text -> skeleton; text not listed is its own skeleton.
+    skeleton_map: dict[str, str] = field(default_factory=dict)
     unscored: bool = False
     scanned: list[tuple[Detector, Any]] = field(default_factory=list)
 
@@ -121,6 +131,15 @@ class FakeScan:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._result(Detector.SECRETS, value)
+
+    async def skeleton(self, text: str) -> str:
+        return self.skeleton_map.get(text, text)
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        return {text: self.skeleton_map.get(text, text) for text in texts}
+
+    async def commands(self, value: Any) -> ScanResult:
+        return self._result(Detector.COMMANDS, value)
 
     async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
         if self.unscored:

@@ -20,12 +20,22 @@ from mcp_security_proxy.sdk import Finding, InspectionStatus, Severity
 
 
 class Enforcement(StrEnum):
+    """`redact` (D5) exposes a tool with its flagged fields replaced and makes
+    its calls need approval; for a call result it withholds the result until
+    C4 adds redaction there."""
+
     ALLOW = "allow"
+    REDACT = "redact"
     REQUIRE_APPROVAL = "require_approval"
     BLOCK = "block"
 
 
-_STRICTNESS = {Enforcement.ALLOW: 0, Enforcement.REQUIRE_APPROVAL: 1, Enforcement.BLOCK: 2}
+_STRICTNESS = {
+    Enforcement.ALLOW: 0,
+    Enforcement.REDACT: 1,
+    Enforcement.REQUIRE_APPROVAL: 2,
+    Enforcement.BLOCK: 3,
+}
 
 
 class EnforcementEntry(BaseModel):

@@ -103,3 +103,21 @@ def test_the_invisible_character_pattern_is_built_at_startup() -> None:
     invisible_run.cache_clear()
     RuleScanner()
     assert invisible_run.cache_info().currsize == 1
+
+
+async def test_scan_forwards_every_scan_view_method_to_the_rule_stage() -> None:
+    from mcp_security_proxy.sdk import ScanView
+    from mcp_security_proxy.services.scan import Scan
+
+    methods = {
+        name
+        for name in vars(ScanView)
+        if not name.startswith("_") and callable(getattr(ScanView, name))
+    }
+    assert methods <= set(dir(Scan))
+
+    rules, scan = RuleScanner(), Scan(RuleScanner())
+    value = "rm -rf build; cat ~/.ssh/id_rsa"
+    assert (await scan.commands(value)).matches == (await rules.commands(value)).matches
+    assert await scan.skeleton("send_mеssage") == await rules.skeleton("send_mеssage")
+    assert await scan.skeletons(["a", "b"]) == await rules.skeletons(["a", "b"])

@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from mcp import ClientSession
+from mcp.client.session import MessageHandlerFnT
 from mcp.client.streamable_http import streamable_http_client
 
 
@@ -59,7 +60,12 @@ def wait_until_listening(
 
 @asynccontextmanager
 async def spawn_streamable_http_upstream(
-    command: str, args: list[str], host: str, port: int, url: str
+    command: str,
+    args: list[str],
+    host: str,
+    port: int,
+    url: str,
+    message_handler: MessageHandlerFnT | None = None,
 ) -> AsyncIterator[ClientSession]:
     await asyncio.to_thread(ensure_port_free, host, port)
 
@@ -77,7 +83,7 @@ async def spawn_streamable_http_upstream(
         await asyncio.to_thread(wait_until_listening, lambda: process.returncode, host, port)
         async with streamable_http_client(url) as streams:
             read, write = streams[0], streams[1]
-            async with ClientSession(read, write) as session:
+            async with ClientSession(read, write, message_handler=message_handler) as session:
                 await session.initialize()
                 yield session
     finally:

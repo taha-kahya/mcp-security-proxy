@@ -21,14 +21,25 @@ class Registry:
     def __init__(self, adapter: ToolAdapter) -> None:
         self._adapter = adapter
         self._definitions: dict[ToolId, ToolDefinition] = {}
+        self._approved: dict[ToolId, ToolDefinition] = {}
 
     def register(self, tool_id: ToolId, definition: Mapping[str, Any]) -> ToolDefinition:
         registered = ToolDefinition(tool_id, canonical_digest(definition), definition)
         self._definitions[tool_id] = registered
         return registered
 
+    def unregister(self, tool_id: ToolId) -> None:
+        """The server no longer lists the tool. Its approved version is kept."""
+        self._definitions.pop(tool_id, None)
+
+    def set_approved(self, definition: ToolDefinition) -> None:
+        self._approved[definition.tool_id] = definition
+
     def current(self, tool_id: ToolId) -> ToolDefinition | None:
         return self._definitions.get(tool_id)
+
+    def approved(self, tool_id: ToolId) -> ToolDefinition | None:
+        return self._approved.get(tool_id)
 
     def action(self, tool_id: ToolId, arguments: Mapping[str, Any]) -> Action:
         if tool_id not in self._definitions:

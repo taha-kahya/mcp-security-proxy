@@ -23,7 +23,7 @@ cached result; a definition it has not scored raises `ScanError`.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -44,6 +44,7 @@ class Detector(StrEnum):
     INSTRUCTIONS = "instructions"
     LOOKALIKES = "lookalikes"
     SECRETS = "secrets"
+    COMMANDS = "commands"
     POISONING = "poisoning"
 
 
@@ -67,6 +68,9 @@ class MatchKind(StrEnum):
     MIXED_SCRIPT_CONFUSABLE = "mixed_script_confusable"
     # secrets; `ScanMatch.label` names the format
     SECRET = "secret"
+    # commands (SDK 1.2): values a model would run, or files it would read
+    SHELL_COMMAND = "shell_command"
+    CREDENTIAL_PATH = "credential_path"
     # poisoning: the whole tool definition; `ScanMatch.label` is the graded
     # level, `medium`, `high` or `critical`
     POISONED_DEFINITION = "poisoned_definition"
@@ -151,6 +155,27 @@ class ScanView(Protocol):
     async def lookalikes(self, value: Any) -> ScanResult: ...
 
     async def secrets(self, value: Any) -> ScanResult: ...
+
+    async def skeleton(self, text: str) -> str:
+        """The UTS #39 confusable skeleton of `text` (SDK 1.2).
+
+        Two strings that look alike, such as `send_message` and `send_mеssage`
+        with a Cyrillic "е", have the same skeleton. Compare skeletons rather
+        than mapping lookalike letters in a defense.
+        """
+        ...
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        """`skeleton` for many strings in one call, keyed by text (SDK 1.2).
+
+        Comparing one name against every exposed tool needs the skeleton of
+        each; one call keeps that linear in the number of names.
+        """
+        ...
+
+    async def commands(self, value: Any) -> ScanResult:
+        """Shell command syntax and credential file paths (SDK 1.2)."""
+        ...
 
     async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
         """Grade a tool definition (as listed by `tools/list`) with the

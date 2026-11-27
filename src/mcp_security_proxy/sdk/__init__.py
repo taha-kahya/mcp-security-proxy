@@ -28,6 +28,8 @@ from mcp_security_proxy.sdk.destinations import (
 )
 from mcp_security_proxy.sdk.digest import canonical_digest
 from mcp_security_proxy.sdk.events import (
+    ERROR_CONTENT_TYPE,
+    NOTIFICATION_CONTENT_TYPE,
     ContentBlock,
     ContentSource,
     Direction,
@@ -36,6 +38,12 @@ from mcp_security_proxy.sdk.events import (
     Stage,
 )
 from mcp_security_proxy.sdk.frozen import freeze, thaw
+from mcp_security_proxy.sdk.jsonwalk import (
+    findings_by_rule,
+    is_array,
+    iter_keyword_values,
+    iter_strings,
+)
 from mcp_security_proxy.sdk.manifest import Capability, Manifest
 from mcp_security_proxy.sdk.results import (
     Finding,
@@ -61,6 +69,12 @@ from mcp_security_proxy.sdk.types import Principal, ToolId
 from mcp_security_proxy.sdk.version import CONTRACT_VERSION, SDK_VERSION
 
 __all__ = [
+    "findings_by_rule",
+    "is_array",
+    "iter_keyword_values",
+    "iter_strings",
+    "ERROR_CONTENT_TYPE",
+    "NOTIFICATION_CONTENT_TYPE",
     "ABSENT",
     "CONTRACT_VERSION",
     "DEFENSE_ENTRY_POINT_GROUP",

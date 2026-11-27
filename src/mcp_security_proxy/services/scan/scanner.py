@@ -12,7 +12,8 @@ scanned: a defense must report them as failed, never as clean.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from functools import lru_cache
 from typing import Any
 
 from mcp_security_proxy.sdk import (
@@ -26,6 +27,7 @@ from mcp_security_proxy.sdk import (
 )
 from mcp_security_proxy.services.scan.cache import LruCache
 from mcp_security_proxy.services.scan.rules import (
+    CommandsRule,
     Evidence,
     HiddenContentRule,
     InstructionsRule,
@@ -38,7 +40,7 @@ from mcp_security_proxy.services.scan.unicode_data import UnicodeData, unicode_d
 from mcp_security_proxy.services.scan.views import Located, TextViews, invisible_run
 from mcp_security_proxy.services.scan.walk import TextLeaf, text_leaves
 
-RULES_VERSION = "1"
+RULES_VERSION = "2"
 DEFAULT_MAX_CHARS = 1_000_000
 DEFAULT_CACHE_ENTRIES = 1024
 
@@ -68,8 +70,11 @@ class RuleScanner:
             Detector.INSTRUCTIONS: InstructionsRule(),
             Detector.LOOKALIKES: LookalikesRule(data),
             Detector.SECRETS: SecretsRule(),
+            Detector.COMMANDS: CommandsRule(),
         }
         self.version = f"rules-{RULES_VERSION}+unicode-{data.version}"
+        # Tool names repeat on every discovery, so each skeleton is computed once.
+        self._skeleton = lru_cache(maxsize=65536)(data.skeleton)
 
     async def hidden(self, value: Any) -> ScanResult:
         return self._scan(Detector.HIDDEN, value)
@@ -82,6 +87,21 @@ class RuleScanner:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._scan(Detector.SECRETS, value)
+
+    async def skeleton(self, text: str) -> str:
+        if len(text) > self._max_chars:
+            raise ScanLimitError(f"{len(text)} characters; the limit is {self._max_chars}")
+        return self._skeleton(text)
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        texts = list(texts)
+        size = sum(len(text) for text in texts)
+        if size > self._max_chars:
+            raise ScanLimitError(f"{size} characters to scan; the limit is {self._max_chars}")
+        return {text: self._skeleton(text) for text in texts}
+
+    async def commands(self, value: Any) -> ScanResult:
+        return self._scan(Detector.COMMANDS, value)
 
     async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
         raise ScanError("no classifier stage is configured (scan.classifier, ADR 0026)")
