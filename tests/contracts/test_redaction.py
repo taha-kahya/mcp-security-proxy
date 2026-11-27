@@ -117,3 +117,50 @@ def test_redact_in_an_override_is_reported_as_loosened() -> None:
     base = DefenseEnforcement()
     looser = base.overlaid_with(EnforcementEntry(by_severity={Severity.HIGH: Enforcement.REDACT}))
     assert any("severity high: redact" in line for line in looser.loosened_from(base))
+
+
+def test_nothing_to_redact_hides_the_tool() -> None:
+    assert redact(DEFINITION, []) is None
+
+
+def test_a_frozen_definition_is_redacted() -> None:
+    from mcp_security_proxy.sdk import freeze
+
+    exposed = redact(freeze(DEFINITION), ["/inputSchema/examples/0"])
+    assert exposed is not None and exposed["inputSchema"]["examples"] == [NOTICE, "b"]
+
+
+def _incomplete(status_result: Result) -> InspectionReport:
+    return InspectionReport("d", "1.0.0", status_result)
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        pytest.param(Result.failed("too large to scan"), id="failed"),
+        pytest.param(Result.unsupported("image"), id="unsupported"),
+    ],
+)
+def test_an_incomplete_inspection_mapped_to_redact_offers_no_redaction(result: Result) -> None:
+    document: dict[str, Any] = {
+        "schema_version": 1,
+        "principals": {"alice": [{"tool": "s/*", "effect": "allow"}]},
+        "enforcement": {
+            "on_failure": "redact",
+            "on_unsupported": "redact",
+            "findings": {"d.a": "redact"},
+        },
+    }
+    policy = parse_policy(document, defense_ids=["d"]).for_principal(Principal("alice", "test"))
+    alone = Guard().review(policy, [_incomplete(result)])
+    assert alone.outcome is Outcome.REDACT and alone.redactions == ()
+    assert redact(DEFINITION, alone.redactions) is None
+    # A finding's evidence elsewhere can't cover what wasn't inspected.
+    mixed = Guard().review(
+        policy,
+        [
+            _incomplete(result),
+            InspectionReport("d", "1.0.0", Result.completed([_finding("d.a", "/description")])),
+        ],
+    )
+    assert mixed.redactions == ()

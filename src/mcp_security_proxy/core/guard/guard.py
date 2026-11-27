@@ -54,8 +54,18 @@ def _combine(verdicts: Iterable[Verdict], policy: PrincipalPolicy) -> Decision:
         rule_refs=tuple(verdict.rule_ref for verdict in deciding),
         reason=deciding[0].reason,
         policy_version=policy.policy_version,
-        redactions=tuple(sorted({ref for v in deciding for ref in v.redactions})),
+        redactions=_redactions(deciding),
     )
+
+
+def _redactions(deciding: list[Verdict]) -> tuple[str, ...]:
+    """What a `redact` decision may replace. A `redact` verdict without
+    evidence (an incomplete inspection mapped to `redact`) means some content
+    wasn't inspected, which no redaction covers, so none is offered and the
+    tool is hidden instead."""
+    if any(v.outcome is Outcome.REDACT and not v.redactions for v in deciding):
+        return ()
+    return tuple(sorted({ref for v in deciding for ref in v.redactions}))
 
 
 _REDACTED_CALL_REASON = (
