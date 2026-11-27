@@ -18,3 +18,6 @@ proxy_state.sqlite3
 
 # Documentation site build output (mkdocs build)
 site/
+
+# Model bundles for Scan's classifier stage (ADR 0026); large, never committed
+models/

@@ -18,6 +18,7 @@ from typing import Any
 from mcp_security_proxy.sdk import (
     Decoding,
     Detector,
+    ScanError,
     ScanLimitError,
     ScanMatch,
     ScanResult,
@@ -34,7 +35,7 @@ from mcp_security_proxy.services.scan.rules import (
     hidden_regions,
 )
 from mcp_security_proxy.services.scan.unicode_data import UnicodeData, unicode_data
-from mcp_security_proxy.services.scan.views import Located, TextViews
+from mcp_security_proxy.services.scan.views import Located, TextViews, invisible_run
 from mcp_security_proxy.services.scan.walk import TextLeaf, text_leaves
 
 RULES_VERSION = "1"
@@ -57,6 +58,8 @@ class RuleScanner:
         unicode: UnicodeData | None = None,
     ) -> None:
         data = unicode or unicode_data()
+        # Built from every code point; now, not inside the first inspection.
+        invisible_run()
         self._max_chars = max_chars
         self._cache: LruCache[tuple[ScanMatch, ...]] = LruCache(cache_entries)
         self._unicode = data
@@ -79,6 +82,9 @@ class RuleScanner:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._scan(Detector.SECRETS, value)
+
+    async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
+        raise ScanError("no classifier stage is configured (scan.classifier, ADR 0026)")
 
     def _scan(self, detector: Detector, value: Any) -> ScanResult:
         leaves = list(text_leaves(value))

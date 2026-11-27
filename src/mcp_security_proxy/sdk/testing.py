@@ -31,7 +31,7 @@ from mcp_security_proxy.sdk.context import Context, Grants
 from mcp_security_proxy.sdk.events import ContentBlock, Direction, Event, Stage
 from mcp_security_proxy.sdk.manifest import Capability, Manifest
 from mcp_security_proxy.sdk.results import Signal
-from mcp_security_proxy.sdk.scan import Detector, ScanMatch, ScanResult, ScanView
+from mcp_security_proxy.sdk.scan import Detector, ScanError, ScanMatch, ScanResult, ScanView
 from mcp_security_proxy.sdk.types import Principal, ToolId
 
 TEST_PRINCIPAL = Principal(id="test-principal", authenticated_by="test")
@@ -101,11 +101,13 @@ class FakeScan:
     """Returns `matches` for every value scanned, filtered by detector.
 
     `scanned` records each call as `(detector, value)`, so a test can check
-    what a defense asked Scan to look at.
+    what a defense asked Scan to look at. `unscored` makes `poisoning` raise
+    `ScanError`, as Scan does for a definition the classifier has not scored.
     """
 
     matches: tuple[ScanMatch, ...] = ()
     version: str = "fake-scan"
+    unscored: bool = False
     scanned: list[tuple[Detector, Any]] = field(default_factory=list)
 
     async def hidden(self, value: Any) -> ScanResult:
@@ -119,6 +121,12 @@ class FakeScan:
 
     async def secrets(self, value: Any) -> ScanResult:
         return self._result(Detector.SECRETS, value)
+
+    async def poisoning(self, definition: Mapping[str, Any]) -> ScanResult:
+        if self.unscored:
+            self.scanned.append((Detector.POISONING, definition))
+            raise ScanError("definition not scored")
+        return self._result(Detector.POISONING, definition)
 
     def _result(self, detector: Detector, value: Any) -> ScanResult:
         self.scanned.append((detector, value))

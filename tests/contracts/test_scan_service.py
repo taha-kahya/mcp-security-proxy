@@ -9,6 +9,7 @@ import pytest
 from mcp_security_proxy.sdk import Detector, MatchKind, ScanLimitError, freeze
 from mcp_security_proxy.services.scan import RuleScanner
 from mcp_security_proxy.services.scan.cache import LruCache
+from mcp_security_proxy.services.scan.views import invisible_run
 
 TOOL = {
     "name": "read_file",
@@ -94,3 +95,11 @@ async def test_too_many_encoded_blobs_raise_instead_of_skipping_the_rest() -> No
 async def test_many_percent_encoded_urls_are_normal_text() -> None:
     urls = "https://example.com/search?q=hello%20world%20again " * 500
     assert (await RuleScanner().instructions(urls)).matches == ()
+
+
+def test_the_invisible_character_pattern_is_built_at_startup() -> None:
+    """It walks every code point; building it inside the first inspection
+    would spend that defense's deadline."""
+    invisible_run.cache_clear()
+    RuleScanner()
+    assert invisible_run.cache_info().currsize == 1

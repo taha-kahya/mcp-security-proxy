@@ -10,10 +10,12 @@ injection, of patterns that rarely occur by accident:
 - **chat-template tokens**: `<|im_start|>`, `[INST]`, `<<SYS>>`;
 - **fake authority markers**: `<system>`, `<important>`, `[SYSTEM]`.
 
-Overrides and role switches preceded by a negation ("never ignore your
-instructions", "do not ...") are not matched, as in SkillSpector's
-prohibition context. Every view is searched, so encoding and lookalike
-letters can't hide a phrase.
+Overrides and role switches directly preceded by a negation ("never ignore
+your instructions", "do not ever ...") are not matched, as in SkillSpector's
+prohibition context. Only a few adverbs may stand between the negation and
+the verb, so a leading "never mind" or "without delay" does not count.
+Every view is searched, so encoding and lookalike letters can't hide a
+phrase.
 
 What this does not catch: reworded injections ("kindly set aside what you
 were told"). That needs a classifier stage behind the same method.
@@ -65,7 +67,7 @@ _AUTHORITY_LABEL = re.compile(
     r"\[(?:SYSTEM|ADMIN|DEVELOPER)(?:\s+(?:MESSAGE|NOTE|OVERRIDE|PROMPT))?\]"
 )
 _NEGATED = re.compile(
-    r"(?:\b(?:never|not|avoid|refuse\s+to|without)|n't)\s+(?:\w+\s+)?$",
+    r"(?:\b(?:never|not|avoid|refuse\s+to|without)|n't)\s+(?:(?:ever|just|simply|to)\s+)?$",
     re.I,
 )
 

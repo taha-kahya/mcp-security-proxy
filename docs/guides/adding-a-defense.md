@@ -93,6 +93,8 @@ def create(settings: Mapping[str, Any]) -> MyCheck:
 **Use only what you declare.** The context gives you only the capabilities
 in `required_capabilities` (`registry`, `history`, `policy`,
 `private_state`, `scan`). Using an undeclared one fails the inspection.
+A defense that reads `scan.poisoning` also declares `scan_classifier`, so
+it fails at startup when no classifier is configured.
 
 **Scan** finds evidence in text; your defense decides what it means.
 `await context.scan.instructions(value)` (also `hidden`, `lookalikes`,
@@ -102,7 +104,11 @@ decodings that revealed them, and whether they were `concealed`. Map
 matches to your own rule ids and severities, and put `match.ref` in
 `evidence_refs`. Don't catch `ScanError`: an unscanned value must fail the
 inspection, not pass it. See `defenses/indirect/result_injection` for a
-short example.
+short example. `await context.scan.poisoning(definition)` returns the
+classifier stage's grade of a whole tool definition (`match.label` is
+`medium`, `high` or `critical`). The proxy scores definitions before your
+defense runs, so reading the grade is instant; see
+`defenses/direct/definition_classifier`.
 
 **Signals** are observations for other defenses (for example, "sensitive
 data seen"). Declare their types in `produced_signals` and set

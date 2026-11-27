@@ -8,14 +8,18 @@ anything; the orchestrator does that with what this returns.
 Every method except `serialized` must be called while holding
 `serialized(principal)`, so that deciding a call and reserving it in
 History happen against the same history, even under concurrent calls.
+
+Before definitions are inspected, `prescan` (Scan's classifier stage, ADR
+0026) scores them outside the defense deadline, so a defense only reads the
+cached result.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from contextlib import AbstractAsyncContextManager
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from mcp import types
 
@@ -40,6 +44,17 @@ from mcp_security_proxy.services.history import History
 from mcp_security_proxy.services.policy import PolicySnapshot, PrincipalPolicy
 from mcp_security_proxy.services.registry import Registry
 from mcp_security_proxy.services.state import DefenseStateStore, StateUnavailableError, TaskRef
+
+
+class DefinitionPrescan(Protocol):
+    """Work done once per tool definition before it is inspected; its
+    results stay readable until the block exits. Must not raise for a failed
+    scan: a definition left unscored is reported by the defense that reads
+    it as failed."""
+
+    def prepared(
+        self, definitions: Iterable[Mapping[str, Any]]
+    ) -> AbstractAsyncContextManager[None]: ...
 
 
 @dataclass(frozen=True)
@@ -93,6 +108,7 @@ class ProxyControl:
         runner: Runner,
         guard: Guard,
         locks: TaskLocks | None = None,
+        prescan: DefinitionPrescan | None = None,
     ) -> None:
         self._policy = policy
         self._tasks = tasks
@@ -102,6 +118,7 @@ class ProxyControl:
         self._runner = runner
         self._guard = guard
         self._locks = locks or TaskLocks()
+        self._prescan = prescan
         # Keyed by (task, tool, tool definition version, policy version). A
         # repeat `discover`/`authorize_call` for the same combination (one
         # `tools/list` inspects every visible tool; a call re-checks its
@@ -121,12 +138,16 @@ class ProxyControl:
         policy, task = self._policy.for_principal(principal), self._tasks.task_for(principal)
         visible: list[RoutedTool] = []
         hidden: list[RoutedTool] = []
-        for routed in tools:
-            if not policy.can_discover(routed.tool_id):
-                continue
-            reports = await self._inspect_definition(principal, task, policy, routed)
-            review = self._guard.review(policy, reports)
-            (visible if review.outcome is Outcome.ALLOW else hidden).append(routed)
+        discoverable = [routed for routed in tools if policy.can_discover(routed.tool_id)]
+        # One batch for the tools not inspected yet, so the model runs once
+        # per listing and never for a tool whose reports are cached.
+        async with self._prepared(self._uninspected(task, policy, discoverable)):
+            for routed in discoverable:
+                reports = await self._inspect_definition(
+                    principal, task, policy, routed, prepared=True
+                )
+                review = self._guard.review(policy, reports)
+                (visible if review.outcome is Outcome.ALLOW else hidden).append(routed)
         return Discovery(tuple(visible), tuple(hidden), policy.policy_version)
 
     async def authorize_call(
@@ -203,21 +224,49 @@ class ProxyControl:
         return definition
 
     async def _inspect_definition(
-        self, principal: Principal, task: TaskRef, policy: PrincipalPolicy, routed: RoutedTool
+        self,
+        principal: Principal,
+        task: TaskRef,
+        policy: PrincipalPolicy,
+        routed: RoutedTool,
+        *,
+        prepared: bool = False,
     ) -> tuple[InspectionReport, ...]:
+        """`prepared`: the caller holds a prescan of this tool, as
+        `discover` does for its listing. Otherwise, for a call, the tool is
+        prescanned on its own (a no-op when a listing already scored it)."""
         if not self._runner.applies_to(Stage.DISCOVERY):
             return ()
-        definition = self._definition(routed)
-        key = (task, routed.tool_id, definition.version, policy.policy_version)
-        cached = self._definition_cache.get(key)
+        cached = self._cached(task, policy, routed)
         if cached is not None:
             return cached
-        reports = await self._inspect(
-            discovery_event(definition), principal, task, policy, definition
-        )
+        definition = self._definition(routed)
+        async with nullcontext() if prepared else self._prepared([routed]):
+            reports = await self._inspect(
+                discovery_event(definition), principal, task, policy, definition
+            )
         if self._cacheable(reports):
+            key = (task, routed.tool_id, definition.version, policy.policy_version)
             self._definition_cache[key] = reports
         return reports
+
+    def _cached(
+        self, task: TaskRef, policy: PrincipalPolicy, routed: RoutedTool
+    ) -> tuple[InspectionReport, ...] | None:
+        version = self._definition(routed).version
+        return self._definition_cache.get((task, routed.tool_id, version, policy.policy_version))
+
+    def _uninspected(
+        self, task: TaskRef, policy: PrincipalPolicy, tools: Iterable[RoutedTool]
+    ) -> list[RoutedTool]:
+        if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
+            return []
+        return [routed for routed in tools if self._cached(task, policy, routed) is None]
+
+    def _prepared(self, tools: Iterable[RoutedTool]) -> AbstractAsyncContextManager[None]:
+        if self._prescan is None or not self._runner.applies_to(Stage.DISCOVERY):
+            return nullcontext()
+        return self._prescan.prepared([self._definition(routed).definition for routed in tools])
 
     def _cacheable(self, reports: Iterable[InspectionReport]) -> bool:
         """A failed inspection may be transient (a timeout, a raised error),

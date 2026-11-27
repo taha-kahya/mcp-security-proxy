@@ -80,7 +80,9 @@ and tuples (`sdk.freeze`).
   digest), `signals` (earlier signals in this inspection, limited to
   required types), plus `registry`, `history`, `policy`,
   `private_state`, and `scan`, each raising `CapabilityNotGrantedError`
-  unless declared.
+  unless declared. `scan_classifier` grants nothing itself: a defense that
+  reads Scan's classifier stage declares it next to `scan`, and the core
+  provides it only when `scan.classifier` is configured (ADR 0026).
 - **Manifest** — `id` (snake_case, equal to the entry-point name),
   `version`, `sdk_version_range` (PEP 440), `stages`,
   `required_capabilities`, `required_signals`, `produced_signals`.
@@ -126,7 +128,12 @@ proposal refuses the request.
 
 **Scan** (`ScanView`) — *Input:* a string or any JSON value. *Output:*
 `hidden()`, `instructions()`, `lookalikes()`, `secrets()`, each async,
-returning a `ScanResult` (`matches`, `version`). A `ScanMatch` has
+returning a `ScanResult` (`matches`, `version`). `poisoning(definition)`
+returns the classifier stage's grade of a whole tool definition: at most
+one match, with pointer `""` and the grade in `label`. The proxy scores
+definitions before inspection, outside the deadline, and a definition that
+was never scored raises `ScanError`
+([0026](../decisions/0026-scan-classifier-stage.md)). A `ScanMatch` has
 `detector`, `kind`, `pointer` (JSON Pointer), `span`, `confidence`,
 `decoded_by`, `concealed`, `in_key`, `stage`, `label`, and `ref`
 (`/description#12-40`); it never contains the text. *Scope:* global and
@@ -134,8 +141,10 @@ stateless; results are cached per detector and content digest.
 *Errors:* `ScanLimitError` (over 1M characters, or more than 256 base64
 or tag segments in one string) and other `ScanError`s propagate, so the
 inspection fails rather than passing unscanned content. *Versioning:*
-`rules-<n>+unicode-<version>`; only the `rules` stage exists
-([0025](../decisions/0025-scan-contract-and-rule-stage.md)).
+`rules-<n>+unicode-<version>` for the rule stage
+([0025](../decisions/0025-scan-contract-and-rule-stage.md)), and
+`classifier-<checkpoint>+<serialization>+<operating point>` for the
+classifier stage, which is optional (`scan.classifier`).
 
 **State** (`StateStore`, core only) — `read`, `read_scope`, `scopes`,
 `apply` (all-or-nothing), `compare_and_set`. JSON values; reads are frozen.
@@ -192,6 +201,8 @@ tools_path: config/tools.yaml          # optional; otherwise every tool is unkno
 defenses_path: config/defenses         # optional; otherwise no defenses
 defense_deadline_seconds: 2.0
 state: {backend: sqlite, path: proxy_state.sqlite3}   # or {backend: memory}
+scan:                                  # optional; needs `uv sync --extra classifier`
+  classifier: {model_dir: models/definition-classifier, operating_point: high_recall}
 ```
 
 ```yaml
