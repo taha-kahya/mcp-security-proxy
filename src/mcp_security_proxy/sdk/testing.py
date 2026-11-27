@@ -115,7 +115,7 @@ class FakeScan:
     matches: tuple[ScanMatch, ...] = ()
     version: str = "fake-scan"
     # text -> skeleton; text not listed is its own skeleton.
-    skeletons: dict[str, str] = field(default_factory=dict)
+    skeleton_map: dict[str, str] = field(default_factory=dict)
     scanned: list[tuple[Detector, Any]] = field(default_factory=list)
 
     async def hidden(self, value: Any) -> ScanResult:
@@ -131,7 +131,10 @@ class FakeScan:
         return self._result(Detector.SECRETS, value)
 
     async def skeleton(self, text: str) -> str:
-        return self.skeletons.get(text, text)
+        return self.skeleton_map.get(text, text)
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        return {text: self.skeleton_map.get(text, text) for text in texts}
 
     async def commands(self, value: Any) -> ScanResult:
         return self._result(Detector.COMMANDS, value)

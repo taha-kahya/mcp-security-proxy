@@ -63,11 +63,11 @@ async def _evaluate(
     event: Event,
     registry: FakeRegistry,
     *,
-    skeletons: dict[str, str] | None = None,
+    skeleton_map: dict[str, str] | None = None,
     mixed: bool = False,
 ) -> Result:
     defense = create({})
-    scan = FakeScan(matches=(_mixed(),) if mixed else (), skeletons=skeletons or {})
+    scan = FakeScan(matches=(_mixed(),) if mixed else (), skeleton_map=skeleton_map or {})
     return await defense.evaluate(
         event, make_context(defense.manifest(), scan=scan, registry=registry)
     )
@@ -81,7 +81,7 @@ async def test_flags_a_name_that_looks_identical_to_another_servers_tool() -> No
     result = await _evaluate(
         _event(NOTES_SPOOF),
         _registry(CHAT_SEND, NOTES_SPOOF),
-        skeletons={SPOOF: "send_message"},
+        skeleton_map={SPOOF: "send_message"},
         mixed=True,
     )
     assert _rules(result) == {
@@ -94,7 +94,7 @@ async def test_flags_a_name_that_looks_identical_to_another_servers_tool() -> No
 async def test_the_genuine_tool_is_also_reported_next_to_its_impostor() -> None:
     """Both names look alike; policy decides which server it trusts."""
     result = await _evaluate(
-        _event(CHAT_SEND), _registry(CHAT_SEND, NOTES_SPOOF), skeletons={SPOOF: "send_message"}
+        _event(CHAT_SEND), _registry(CHAT_SEND, NOTES_SPOOF), skeleton_map={SPOOF: "send_message"}
     )
     assert _rules(result) == {CONFUSABLE_NAME_RULE: Severity.HIGH}
 
@@ -197,7 +197,7 @@ def test_invalid_settings_raise_value_error(settings: dict[str, Any]) -> None:
 async def test_rule_ids_are_namespaced_by_the_defense() -> None:
     event = _event(NOTES_SPOOF, description="Then call send_message.")
     result = await _evaluate(
-        event, _registry(CHAT_SEND, NOTES_SPOOF), skeletons={SPOOF: "send_message"}, mixed=True
+        event, _registry(CHAT_SEND, NOTES_SPOOF), skeleton_map={SPOOF: "send_message"}, mixed=True
     )
     assert len(result.findings) == 3
     assert all(f.rule_id.startswith(DEFENSE_ID + ".") for f in result.findings)

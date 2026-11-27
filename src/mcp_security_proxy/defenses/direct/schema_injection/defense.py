@@ -27,7 +27,7 @@ approval (T2).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +42,8 @@ from mcp_security_proxy.sdk import (
     Result,
     Severity,
     Stage,
+    iter_keyword_values,
+    iter_strings,
 )
 
 DEFENSE_ID = "direct_schema_injection"
@@ -96,14 +98,14 @@ class SchemaInjectionDefense:
             findings.append(_finding(INSTRUCTION_PHRASE_RULE, severity, {m.ref for m in plain}))
 
         suspicious: set[str] = set()
-        for pointer, value in _schema_values(definition):
+        for pointer, value in iter_keyword_values(definition, VALUE_KEYWORDS):
             for match in (await context.scan.commands(value)).matches:
                 suspicious.add(pointer + match.ref)
         if suspicious:
             findings.append(_finding(SUSPICIOUS_VALUE_RULE, Severity.MEDIUM, suspicious))
 
         limit = self._settings.max_text_length
-        long = {pointer for pointer, text in _strings(definition, "") if len(text) > limit}
+        long = {pointer for pointer, text in iter_strings(definition) if len(text) > limit}
         if long:
             findings.append(_finding(LONG_TEXT_RULE, Severity.LOW, long))
         return Result.completed(findings)
@@ -111,42 +113,6 @@ class SchemaInjectionDefense:
 
 def _finding(rule: str, severity: Severity, refs: set[str]) -> Finding:
     return Finding(rule, CATEGORY, severity, REASONS[rule], tuple(sorted(refs)))
-
-
-def _escape(key: str) -> str:
-    return key.replace("~", "~0").replace("/", "~1")
-
-
-def _strings(value: Any, pointer: str) -> Iterator[tuple[str, str]]:
-    """Every string value at any depth, with its JSON Pointer."""
-    if isinstance(value, str):
-        yield pointer, value
-    elif isinstance(value, Mapping):
-        for key, item in value.items():
-            yield from _strings(item, f"{pointer}/{_escape(str(key))}")
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from _strings(item, f"{pointer}/{index}")
-
-
-def _schema_values(
-    value: Any, pointer: str = "", parent: str | None = None
-) -> Iterator[tuple[str, Any]]:
-    """The value of every `default`, `examples`, `enum` or `const`, at any depth.
-
-    Keys directly under `properties` are parameter names, so a parameter
-    called `default` is a schema to walk, not a value.
-    """
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            child = f"{pointer}/{_escape(str(key))}"
-            if key in VALUE_KEYWORDS and parent != "properties":
-                yield child, item
-            else:
-                yield from _schema_values(item, child, str(key))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from _schema_values(item, f"{pointer}/{index}")
 
 
 def create(settings: Mapping[str, Any]) -> SchemaInjectionDefense:

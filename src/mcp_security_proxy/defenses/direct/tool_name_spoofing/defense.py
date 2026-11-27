@@ -31,7 +31,7 @@ which is left to Scan's classifier (S4), and lookalike server names (ADR
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -40,12 +40,13 @@ from mcp_security_proxy.sdk import (
     Capability,
     Context,
     Event,
-    Finding,
     Manifest,
     Result,
     Severity,
     Stage,
     ToolId,
+    findings_by_rule,
+    iter_strings,
 )
 
 DEFENSE_ID = "direct_tool_name_spoofing"
@@ -96,20 +97,20 @@ class ToolNameSpoofingDefense:
         others = [t for t in context.registry.tool_ids() if t != own]
         refs: dict[str, set[str]] = {}
 
-        skeleton = await context.scan.skeleton(name)
-        for other in others:
-            if other.name != name and await context.scan.skeleton(other.name) == skeleton:
-                refs.setdefault(CONFUSABLE_NAME_RULE, set()).add("/name")
+        # One batched, cached Scan call per definition rather than one per name.
+        skeletons = await context.scan.skeletons([name, *(t.name for t in others)])
+        if any(other.name != name and skeletons[other.name] == skeletons[name] for other in others):
+            refs.setdefault(CONFUSABLE_NAME_RULE, set()).add("/name")
         if (await context.scan.lookalikes(name)).matches:
             refs.setdefault(MIXED_SCRIPT_RULE, set()).add("/name")
 
         foreign = _foreign_names(own, others)
         if foreign:
             pattern = _whole_words(foreign)
-            for pointer, text in _strings(event.payload, ""):
+            for pointer, text in iter_strings(event.payload):
                 if pointer != "/name" and pattern.search(text):
                     refs.setdefault(OTHER_SERVER_TOOL_RULE, set()).add(pointer)
-        return Result.completed(_findings(refs))
+        return Result.completed(findings_by_rule(refs, RULES, CATEGORY))
 
 
 def _foreign_names(own: ToolId, others: list[ToolId]) -> set[str]:
@@ -128,28 +129,6 @@ def _foreign_names(own: ToolId, others: list[ToolId]) -> set[str]:
 def _whole_words(names: set[str]) -> re.Pattern[str]:
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(rf"(?<![\w/]){alternatives}(?![\w/])")
-
-
-def _escape(key: str) -> str:
-    return key.replace("~", "~0").replace("/", "~1")
-
-
-def _strings(value: Any, pointer: str) -> Iterator[tuple[str, str]]:
-    if isinstance(value, str):
-        yield pointer, value
-    elif isinstance(value, Mapping):
-        for key, item in value.items():
-            yield from _strings(item, f"{pointer}/{_escape(str(key))}")
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            yield from _strings(item, f"{pointer}/{index}")
-
-
-def _findings(refs: Mapping[str, set[str]]) -> list[Finding]:
-    return [
-        Finding(rule, CATEGORY, RULES[rule][0], RULES[rule][1], tuple(sorted(refs[rule])))
-        for rule in sorted(refs)
-    ]
 
 
 def create(settings: Mapping[str, Any]) -> ToolNameSpoofingDefense:

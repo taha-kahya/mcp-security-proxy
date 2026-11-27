@@ -90,7 +90,7 @@ async def test_fake_scan_filters_by_detector_and_records_calls() -> None:
 
 
 async def test_fake_scan_skeleton_defaults_to_the_text_itself() -> None:
-    scan = FakeScan(skeletons={"rеad": "read"})
+    scan = FakeScan(skeleton_map={"rеad": "read"})
     assert await scan.skeleton("rеad") == "read"
     assert await scan.skeleton("write") == "write"
 

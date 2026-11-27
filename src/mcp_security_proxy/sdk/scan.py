@@ -18,6 +18,7 @@ for content it did not inspect.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
@@ -151,6 +152,14 @@ class ScanView(Protocol):
         Two strings that look alike, such as `send_message` and `send_mеssage`
         with a Cyrillic "е", have the same skeleton. Compare skeletons rather
         than mapping lookalike letters in a defense.
+        """
+        ...
+
+    async def skeletons(self, texts: Iterable[str]) -> Mapping[str, str]:
+        """`skeleton` for many strings in one call, keyed by text (SDK 1.2).
+
+        Comparing one name against every exposed tool needs the skeleton of
+        each; one call keeps that linear in the number of names.
         """
         ...
 

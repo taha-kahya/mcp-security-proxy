@@ -41,12 +41,14 @@ from mcp_security_proxy.sdk import (
     Capability,
     Context,
     Event,
-    Finding,
     Manifest,
     Result,
     Severity,
     Stage,
+    findings_by_rule,
+    is_array,
 )
+from mcp_security_proxy.sdk.jsonwalk import escape
 
 DEFENSE_ID = "temporal_definition_drift"
 CATEGORY = "temporal"
@@ -105,11 +107,8 @@ class DefinitionDriftDefense:
         approved = context.registry.approved(event.tool_id)
         if approved is None:
             return Result.completed()
-        return Result.completed(_findings(_classify(approved.definition, event.payload)))
-
-
-def _escape(key: str) -> str:
-    return key.replace("~", "~0").replace("/", "~1")
+        refs = _classify(approved.definition, event.payload)
+        return Result.completed(findings_by_rule(refs, RULES, CATEGORY))
 
 
 def _flatten(value: Any, pointer: str = "") -> Iterator[tuple[str, str]]:
@@ -118,15 +117,15 @@ def _flatten(value: Any, pointer: str = "") -> Iterator[tuple[str, str]]:
     not a change."""
     if isinstance(value, Mapping):
         for key, item in value.items():
-            child = f"{pointer}/{_escape(str(key))}"
-            if key in SET_KEYS and isinstance(item, (list, tuple)):
+            child = f"{pointer}/{escape(str(key))}"
+            if key in SET_KEYS and is_array(item):
                 for member in item:
-                    yield f"{child}/{_escape(_canonical(member))}", "true"
+                    yield f"{child}/{escape(_canonical(member))}", "true"
             else:
                 yield from _flatten(item, child)
         if not value:
             yield pointer, "{}"
-    elif isinstance(value, (list, tuple)):
+    elif is_array(value):
         for index, item in enumerate(value):
             yield from _flatten(item, f"{pointer}/{index}")
         if not value:
@@ -211,13 +210,6 @@ def _emptied_or_filled(pointer: str, before: Mapping[str, str], after: Mapping[s
             if any(key.startswith(pointer + "/") for key in other):
                 return True
     return False
-
-
-def _findings(refs: Mapping[str, set[str]]) -> list[Finding]:
-    return [
-        Finding(rule, CATEGORY, RULES[rule][0], RULES[rule][1], tuple(sorted(refs[rule])))
-        for rule in sorted(refs)
-    ]
 
 
 def create(settings: Mapping[str, Any]) -> DefinitionDriftDefense:
