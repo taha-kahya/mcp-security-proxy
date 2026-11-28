@@ -121,6 +121,29 @@ describes a variant, not a class. If the family can only be described by
 what the text means, it belongs to the classifier (L3). Write the gap into
 the attack doc's *Not covered* section instead of adding phrases.
 
+**A defense may miss variants.** Catching every variant is not the goal. A
+defense that catches its class of evidence cleanly and misses the variants
+outside that class is finished. When a variant gets through, don't patch the
+defense to catch it with a shortcut:
+
+- adding the variant's words, names, paths or URLs to a list;
+- matching one tool, server or field by name;
+- widening a pattern or lowering a threshold until the variant matches;
+- raising a severity so that one more case blocks;
+- special-casing the test input.
+
+Each of these catches the cases you have already seen and nothing new,
+and each adds benign cost. Instead:
+
+1. Record the miss in the attack doc's *Not covered* section, with the
+   layer that could catch it.
+2. Leave the defense as it is.
+3. If the miss shows a real class of evidence that no defense has, make
+   that a new defense with its own design and measurements, not a change
+   to this one.
+
+This holds just as much when the miss comes from the held-out evaluation.
+
 ## 2. Check the SDK is enough
 
 Use only `mcp_security_proxy.sdk` (and third-party libraries). If the check
