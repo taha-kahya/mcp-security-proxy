@@ -35,6 +35,7 @@ __all__ = ["DEFENSE_ID", "<RULE>_RULE", "<Name>Defense", "<Name>Settings", "crea
 ```python
 """Detect <attack>.
 
+Layer <L1-L4>: <the class of evidence its rules decide on>.
 Inspects <what> at <stage>. Does not cover <known gaps>.
 """
 
