@@ -104,6 +104,7 @@ nav:
       - decisions/0024-v4-delivery-by-category-tracks.md
       - decisions/0025-scan-contract-and-rule-stage.md
       - decisions/0026-scan-classifier-stage.md
+      - decisions/0027-layered-defenses-and-measured-value.md
   - Runbooks:
       - runbooks/codex-qwen-smoke-test.md
       - runbooks/server-admission.md

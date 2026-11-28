@@ -25,17 +25,47 @@ benign twins and planned rule ids. It is written from
 `docs/attacks/0000-template.md` in the track's phase 0 MR (D0, I0, C0, T0,
 E0).
 
+Every defense also belongs to one of four layers
+(`docs/decisions/0027-layered-defenses-and-measured-value.md`), set by the
+evidence its rules decide on, not by its stage:
+
+| Layer | Evidence | Example |
+| --- | --- | --- |
+| L1 Signatures | Scan rule matches: hidden content, encodings, phrases, commands, secrets | `direct_hidden_metadata` |
+| L2 Protocol and integrity | Structure, identity, versions, pins, addresses | `temporal_definition_drift` |
+| L3 Semantic classifier | A Scan model's grade, outside the deadline | `direct_definition_classifier` |
+| L4 Behavioural runtime | History, sequences, destinations, sensitivity | `temporal_call_rate` |
+
+The layer decides the severity rules, the failure behaviour and the evidence
+the MR must report (ADR 0027, decisions 2 and 3). Prefer the lowest-cost
+layer that does not depend on the attack's wording: an L2 check survives a
+rewording that an L1 phrase does not.
+
 ## 1. Pin down the design with the user first
 
 Before writing code, settle these with the user. Start from the category's
 attack doc and the plan's Part 1 row for this attack, if they exist; if the
 attack doc is missing, say so, because it is the track's first MR. Explain
 each decision plainly, with a concrete malicious example and its benign
-twin:
+twin. Then state the rule's severity by its layer's contract (ADR 0027,
+decision 2):
+
+- **L1**: high only for concealed evidence; plain text is low, or medium on
+  a surface a model acts on directly (a definition, an argument to a write,
+  send or execute call).
+- **L2**: high only where the structure has no benign reason; a change the
+  defense can't classify is reported, never clean.
+- **L3**: the model's grade is the severity; an ungraded input is failed.
+- **L4**: a missing signal or unclassified tool is unknown, never safe.
+
+Medium blocks under the reference policy until V5 wires approval, so a
+medium rule needs the same benign evidence as a high one.
 
 | Decision | Example |
 | --- | --- |
 | Attack and category | "A tool description tells the agent to read `~/.ssh/id_rsa`" → `direct` |
+| Layer | L1, L2, L3 or L4, with the reason (see the table above) |
+| Class of evidence | What every variant of the attack needs, not one variant's text: "instructions hidden from a reviewer", not "this phrase" |
 | Matched benign case | "An SSH tool whose description says it reads `~/.ssh/config`" |
 | Stage | `discovery` (definitions), `before_execution` (arguments, `Action`), `before_delivery` (results) |
 | Capabilities | Only the ones it reads: `registry`, `history`, `policy`, `private_state` |
@@ -51,7 +81,14 @@ from those experiments: not their poisoned tool, server or prompt texts,
 their system prompts, their fixtures, or their results. Write attack cases
 from the attack taxonomy and public descriptions of the attacks instead. If
 the user offers an example from the experiments, say why it can't be used
-and write a different one.
+and write a different one. Held-out results may decide which attack family
+is worked on next; they never supply its rules.
+
+**No variant-specific rules.** A rule describes a class of evidence a family
+of attacks needs, so rewording or re-encoding the attack doesn't escape it.
+If the family can only be described by what the text means, it is L3's:
+write the gap into the attack doc's *Not covered* section instead of adding
+phrases.
 
 ## 2. Check the SDK is enough
 
@@ -206,7 +243,25 @@ Use `tests/integration/test_defense_extension_e2e.py` as the pattern, and
 check outcomes against the mock servers' audit logs, not the proxy's own
 claims.
 
-## 6. Verify before handing back
+## 6. Measure its value
+
+Unit tests show a rule works on cases its author wrote. Before handing
+back, measure what it adds (ADR 0027, decision 3):
+
+- **Benign cost**: run it over the benign corpus (ADR 0027, decision 4) and
+  count findings by rule and severity, on the held-out half separately.
+  Tune only on the development half. Until the corpus exists, say so and
+  report the mock-server definitions only; never present the twins as a
+  false-positive measurement.
+- **Unique contribution**: which of the repository's attack cases this
+  defense catches that no enabled defense already catches. No unique case
+  plus a non-zero benign cost means the rule is not added.
+- **Cost**: its time on the corpus's largest definition, cold, against the
+  2 s deadline.
+
+Refer to corpus definitions by hash and pointer; never quote them.
+
+## 7. Verify before handing back
 
 ```sh
 uv run ruff check . && uv run ruff format --check .
@@ -224,7 +279,7 @@ then Ctrl-C) to check it passes startup validation.
 anything internal other than the SDK and its own package. Fix the import;
 never change the test.
 
-## 7. Scope of one MR
+## 8. Scope of one MR
 
 - One plan MR per MR, and it must match its scope in the plan. A defense MR
   has one defense, or one tightly related rule set, and no core, SDK, or
@@ -233,6 +288,7 @@ never change the test.
 - Some plan MRs ship more than one piece. D2 and I1 ship inside S2, and
   C1, D4, T2, E1, I3 and I4 each carry a core change and a defense. Follow the
   plan rather than splitting them.
-- In the MR description, give the plan MR id, and list the attacks covered,
-  the benign twins, what's deliberately not covered, and any new signal
-  types.
+- In the MR description, give the plan MR id and the layer, and list the
+  attacks covered, the benign twins, what's deliberately not covered, any
+  new signal types, and the step 6 numbers (benign cost, unique
+  contribution, cost).
