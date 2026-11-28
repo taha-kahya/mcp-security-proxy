@@ -25,21 +25,44 @@ benign twins and planned rule ids. It is written from
 `docs/attacks/0000-template.md` in the track's phase 0 MR (D0, I0, C0, T0,
 E0).
 
-Every defense also belongs to one of four layers
-(`docs/decisions/0027-layered-defenses-and-measured-value.md`), set by the
-evidence its rules decide on, not by its stage:
+### Choose the layer by the evidence
 
-| Layer | Evidence | Example |
-| --- | --- | --- |
-| L1 Signatures | Scan rule matches: hidden content, encodings, phrases, commands, secrets | `direct_hidden_metadata` |
-| L2 Protocol and integrity | Structure, identity, versions, pins, addresses | `temporal_definition_drift` |
-| L3 Semantic classifier | A Scan model's grade, outside the deadline | `direct_definition_classifier` |
-| L4 Behavioural runtime | History, sequences, destinations, sensitivity | `temporal_call_rate` |
+Every defense belongs to one of four layers. The layer is set by what a
+rule decides on, not by the stage it runs at: a phrase check on call
+arguments is still a signature check. Ask "what would the attacker have to
+change to get past this rule?" The answer names the layer.
 
-The layer decides the severity rules, the failure behaviour and the evidence
-the MR must report (ADR 0027, decisions 2 and 3). Prefer the lowest-cost
-layer that does not depend on the attack's wording: an L2 check survives a
-rewording that an L1 phrase does not.
+- **L1, signatures.** The rule matches text: hidden markup, invisible or
+  tag characters, encodings that reveal text, injection phrases, shell
+  commands, credential paths, secrets, lookalike letters. It is fast and
+  points at the exact field. It is beaten by rewording, so it fits evidence
+  the attack *needs* (text has to be hidden from the reviewer, a command
+  has to be runnable). It does not fit what the text *means*. Watch for
+  benign text that quotes the same phrases (docs, security articles, search
+  queries).
+- **L2, protocol and integrity.** The rule compares structure: a tool name
+  against the other servers' names, a definition against the version that
+  was approved, the declared annotations against the operator's
+  classification, a binary against its pinned hash, an upstream's address
+  against what is allowed. Rewording does not escape it. Watch for
+  legitimate structure that looks the same: two servers that share a plain
+  name, a routine version bump, a description edit with no new capability.
+- **L3, semantic classifier.** A local model grades the whole input through
+  Scan, once per definition version and outside the 2 s deadline. Use it
+  when the attack can only be told apart by what the text asks the model to
+  do. Its coverage grows with training data and a new pinned checkpoint,
+  never with rules in a defense. Watch for inputs it can't read (too long
+  for its window) and thresholds that are only valid for one checkpoint.
+- **L4, behavioural runtime.** The rule looks at what the task does over
+  time: how many calls, in what order, to which destination, after reading
+  what. It still works when the injection itself was missed. It depends on
+  history and on the operator classifying tools and data, so its limits are
+  settings with no universal default. Watch for normal bursts and for
+  workflows that read sensitive data and then send for a good reason.
+
+Prefer the cheapest layer that the attacker can't get past by rewording. If
+a defense needs evidence from two layers, make it two defenses, or have one
+read the other's signal.
 
 ## 1. Pin down the design with the user first
 
@@ -47,24 +70,30 @@ Before writing code, settle these with the user. Start from the category's
 attack doc and the plan's Part 1 row for this attack, if they exist; if the
 attack doc is missing, say so, because it is the track's first MR. Explain
 each decision plainly, with a concrete malicious example and its benign
-twin. Then state the rule's severity by its layer's contract (ADR 0027,
-decision 2):
+twin. Then set each rule's severity by its layer:
 
-- **L1**: high only for concealed evidence; plain text is low, or medium on
-  a surface a model acts on directly (a definition, an argument to a write,
-  send or execute call).
-- **L2**: high only where the structure has no benign reason; a change the
-  defense can't classify is reported, never clean.
-- **L3**: the model's grade is the severity; an ungraded input is failed.
-- **L4**: a missing signal or unclassified tool is unknown, never safe.
+- **L1**: high only when the text was concealed (revealed by decoding, tag
+  characters or lookalike letters, or inside hidden markup), because benign
+  content has no reason to hide. Plain visible text is low. It is medium
+  only where a model acts on it with no person in between: a tool
+  definition, or an argument to a write, send or execute call.
+- **L2**: high only when the structure has no benign reason, such as two
+  different names that look identical or a capability added after
+  approval. A change the defense can't classify is reported, never treated
+  as unchanged.
+- **L3**: the model's grade is the severity. An input it did not grade is a
+  failure, never clean.
+- **L4**: a missing signal or an unclassified tool is unknown, never safe.
 
-Medium blocks under the reference policy until V5 wires approval, so a
-medium rule needs the same benign evidence as a high one.
+Medium is not a soft warning. The reference policy maps it to
+`require_approval`, and until approval is wired (V5) that blocks the call
+or hides the tool. Give a medium rule the same benign evidence as a high
+one. Low is recorded and never blocks.
 
 | Decision | Example |
 | --- | --- |
 | Attack and category | "A tool description tells the agent to read `~/.ssh/id_rsa`" → `direct` |
-| Layer | L1, L2, L3 or L4, with the reason (see the table above) |
+| Layer | L1, L2, L3 or L4, with what the attacker would have to change to get past it |
 | Class of evidence | What every variant of the attack needs, not one variant's text: "instructions hidden from a reviewer", not "this phrase" |
 | Matched benign case | "An SSH tool whose description says it reads `~/.ssh/config`" |
 | Stage | `discovery` (definitions), `before_execution` (arguments, `Action`), `before_delivery` (results) |
@@ -86,9 +115,11 @@ is worked on next; they never supply its rules.
 
 **No variant-specific rules.** A rule describes a class of evidence a family
 of attacks needs, so rewording or re-encoding the attack doesn't escape it.
-If the family can only be described by what the text means, it is L3's:
-write the gap into the attack doc's *Not covered* section instead of adding
-phrases.
+A test: write two more variants of the attack that a different author might
+use, with different wording and encoding. If the rule misses them, it
+describes a variant, not a class. If the family can only be described by
+what the text means, it belongs to the classifier (L3). Write the gap into
+the attack doc's *Not covered* section instead of adding phrases.
 
 ## 2. Check the SDK is enough
 
@@ -245,21 +276,28 @@ claims.
 
 ## 6. Measure its value
 
-Unit tests show a rule works on cases its author wrote. Before handing
-back, measure what it adds (ADR 0027, decision 3):
+Unit tests show that a rule works on the cases its author wrote, and the
+benign twins pass by construction. Neither says whether the defense is worth
+running. Before handing back, measure three things:
 
-- **Benign cost**: run it over the benign corpus (ADR 0027, decision 4) and
-  count findings by rule and severity, on the held-out half separately.
-  Tune only on the development half. Until the corpus exists, say so and
-  report the mock-server definitions only; never present the twins as a
-  false-positive measurement.
-- **Unique contribution**: which of the repository's attack cases this
-  defense catches that no enabled defense already catches. No unique case
-  plus a non-zero benign cost means the rule is not added.
-- **Cost**: its time on the corpus's largest definition, cold, against the
-  2 s deadline.
+- **Benign cost.** Run the defense over definitions published by real MCP
+  servers and count findings by rule and severity. The benign corpus is
+  split into a development half, which you may tune on, and a held-out
+  half, which you only report. A high or medium finding on the held-out
+  half needs a stated reason, or the rule changes. If no corpus exists yet,
+  say so, report the mock servers' definitions only, and never present the
+  twins as a false-positive rate.
+- **Unique contribution.** Enable every other default defense and list the
+  repository's attack cases that only this defense catches. If there are
+  none and the benign cost is not zero, don't add the rule. Overlap is fine
+  when this defense is cheaper, or harder to get past by rewording, than
+  the one it overlaps.
+- **Cost.** Time it on the largest definition in the corpus, with Scan's
+  cache cold, and compare that with the 2 s deadline. A rule-based check
+  normally takes milliseconds, so tens of milliseconds call for a look.
 
-Refer to corpus definitions by hash and pointer; never quote them.
+Refer to corpus definitions by hash and JSON Pointer. Their text is
+untrusted, so never quote it in tests, logs or the MR.
 
 ## 7. Verify before handing back
 
